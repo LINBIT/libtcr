@@ -159,6 +159,7 @@ static void stdin_reader(void *data)
 	int fd, lfd;
 
 
+	fprintf(stderr,"test1 %d\n", 17);
 	lfd = create_unix_socket("/tmp/tc_test");
 
 	fd = accept(lfd, NULL, NULL);

@@ -405,7 +405,7 @@ struct tc_thread *tc_thread_new(void (*func)(void *), void *data, char* name)
 	if (!tc)
 		return NULL;
 
-	tc->cr = cr_create(tc_setup, &i, 4096);
+	tc->cr = cr_create(tc_setup, &i, 1024 * 16);
 	if (!tc->cr) {
 		free(tc);
 		return NULL;
