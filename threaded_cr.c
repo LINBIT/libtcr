@@ -172,8 +172,8 @@ void tc_thread_free(struct tc_thread *tc)
 
 static void switch_to(struct tc_thread *new)
 {
-	/* struct tc_thread *previous = tc_current();
-	   printf(" switch(%d): %s -> %s\n", worker.nr, previous->name, new->name); */
+	struct tc_thread *previous = tc_current();
+	printf(" switch(%d): %s -> %s\n", worker.nr, previous->name, new->name);
 
 	cr_call(new->cr);
 }
