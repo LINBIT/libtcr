@@ -198,6 +198,7 @@ static void switch_to(struct tc_thread *new)
 
 void tc_scheduler(void)
 {
+	struct tc_thread *tc;
 	struct event *e;
 
 	spin_lock(&sched.lock);
@@ -213,8 +214,10 @@ void tc_scheduler(void)
 				switch_to(e->tc);
 				return;
 			case EF_EXITING:
-				tc_thread_free(e->tc);
-				break;
+				tc = e->tc;
+				e = LIST_NEXT(e, chain); /* e was within the stack frame */
+				tc_thread_free(tc);      /* that gets released here */
+				continue;
 			default:
 				msg_exit(1, "Wrong e->flags in immediate list\n");
 			}
@@ -232,6 +235,9 @@ static void scheduler_part2()
 	struct event *e;
 	struct tc_thread *tc;
 	int er;
+
+	tc = (struct tc_thread *)cr_uptr(cr_caller());
+	spin_unlock(&tc->running);
 
 	/* The own stack frame is needed, because we have multiple workers. If we would
 	   sleep in the stack frame of the caller of tc_scheduler(), the stack frame
