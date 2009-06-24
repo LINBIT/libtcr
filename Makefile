@@ -7,7 +7,7 @@ tc_main: main.o threaded_cr.o coroutines.o
 	$(CC) $(LDFLAGS) -o $@ $^
 
 clean:
-	rm -f *.o
+	rm -f *.o *.so
 
-libtc.so:
-	gcc -o libtc.so -shared threaded_cr.o coroutines.o
+libtc.so: threaded_cr.o coroutines.o
+	gcc -o $@ -shared $^
