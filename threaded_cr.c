@@ -13,6 +13,8 @@
 #include "coroutines.h"
 #include "threaded_cr.h"
 
+#define DEFAULT_STACK_SIZE (1024 * 16)
+
 struct waitq_ev {
 	atomic_t count;
 	int pipe_fd[2];
@@ -264,7 +266,7 @@ void tc_worker_init(int i)
 	/* LIST_INSERT_HEAD(&sched.threads, &worker.main_thread, chain); */
 
 	asprintf(&worker.sched_p2.name, "sched_%d", i);
-	worker.sched_p2.cr = cr_create(scheduler_part2, NULL, 4096);
+	worker.sched_p2.cr = cr_create(scheduler_part2, NULL, DEFAULT_STACK_SIZE);
 	if (!worker.sched_p2.cr)
 		msg_exit(1, "allocation of worker.sched_p2 failed\n");
 
@@ -410,7 +412,7 @@ struct tc_thread *tc_thread_new(void (*func)(void *), void *data, char* name)
 	if (!tc)
 		return NULL;
 
-	tc->cr = cr_create(tc_setup, &i, 1024 * 16);
+	tc->cr = cr_create(tc_setup, &i, DEFAULT_STACK_SIZE);
 	if (!tc->cr) {
 		free(tc);
 		return NULL;
