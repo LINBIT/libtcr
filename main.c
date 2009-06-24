@@ -142,6 +142,7 @@ static void unix_socket_reader(void *data)
 		}
 		printf("%d: ", gettid());
 		fwrite(b, rr, 1, stdout);
+		fflush(stdout);
 	}
 
 	tc_signal_disable(ri->all_exit);

@@ -14,8 +14,6 @@
 #include "threaded_cr.h"
 
 struct waitq_ev {
-	LIST_ENTRY(waitq_ev) chain;
-	struct tc_waitq *wq;
 	atomic_t count;
 	int pipe_fd[2];
 	struct tc_fd read_tcfd;
@@ -166,6 +164,7 @@ void remove_event_fd(struct event *e, struct tc_fd *tcfd)
 void tc_thread_free(struct tc_thread *tc)
 {
 	cr_delete(tc->cr);
+	tc_waitq_unregister(&tc->exit_waiters);
 	free(tc);
 }
 
@@ -521,7 +520,7 @@ void tc_mutex_init(struct tc_mutex *m)
 	if (pipe(m->pipe_fd))
 		msg_exit(1, "pipe() failed with: %m\n");
 
-	m->read_tcfd = tc_register_fd(m->pipe_fd[0]);
+	_tc_fd_init(&m->read_tcfd, m->pipe_fd[0]);
 }
 
 enum tc_rv tc_mutex_lock(struct tc_mutex *m)
@@ -530,7 +529,7 @@ enum tc_rv tc_mutex_lock(struct tc_mutex *m)
 	char c;
 
 	if (atomic_add_return(1, &m->count) > 1) {
-		rv = tc_wait_fd(EPOLLIN, m->read_tcfd);
+		rv = tc_wait_fd(EPOLLIN, &m->read_tcfd);
 		if (rv != RV_OK)
 			return rv;
 		if (read(m->pipe_fd[0], &c, 1) != 1)
@@ -555,9 +554,17 @@ void tc_mutex_unlock(struct tc_mutex *m)
 		msg_exit(1, "write() failed with: %m\n");
 }
 
+enum tc_rv tc_mutex_trylock(struct tc_mutex *m)
+{
+	if (atomic_set_if_eq(1, 0, &m->count))
+		return RV_OK;
+
+	return RV_FAILED;
+}
+
 void tc_mutex_unregister(struct tc_mutex *m)
 {
-	tc_unregister_fd(m->read_tcfd);
+	_tc_fd_unregister(&m->read_tcfd);
 	close(m->pipe_fd[0]);
 	close(m->pipe_fd[1]);
 }
@@ -596,7 +603,8 @@ enum tc_rv tc_thread_wait(struct tc_thread *wait_for)
 		rv = RV_INTR;
 	}
 
-	tc_waitq_finish_wait(we);
+	/* Do not pass wait_for->exit_waiters, since wait_for might be already freed. */
+	tc_waitq_finish_wait(NULL, we);
 
 	return rv;
 }
@@ -606,7 +614,6 @@ void tc_waitq_init(struct tc_waitq *wq)
 	pthread_mutex_init(&wq->mutex, NULL);
 	wq->active = NULL;
 	wq->spare = NULL;
-	LIST_INIT(&wq->wes);
 }
 
 struct waitq_ev *tc_waitq_prepare_to_wait(struct tc_waitq *wq, struct event *e)
@@ -628,8 +635,6 @@ struct waitq_ev *tc_waitq_prepare_to_wait(struct tc_waitq *wq, struct event *e)
 
 			_tc_fd_init(&we->read_tcfd, we->pipe_fd[0]);
 			atomic_set(&we->count, 0);
-			LIST_INSERT_HEAD(&wq->wes, we, chain);
-			we->wq = wq;
 			wq->active = we;
 		}
 	}
@@ -654,27 +659,31 @@ int _waitq_after_schedule(struct event *e, struct waitq_ev *we)
 	return r;
 }
 
-void tc_waitq_finish_wait(struct waitq_ev *we)
+void tc_waitq_finish_wait(struct tc_waitq *wq, struct waitq_ev *we)
 {
-	struct tc_waitq *wq = we->wq;
+	int f;
 	char c;
 
 	if (atomic_sub_return(1, &we->count) == 0) {
 		if (read(we->pipe_fd[0], &c, 1) != 1)
 			msg_exit(1, "recycle read() in tc_waitq_wait failed %m\n");
-		pthread_mutex_lock(&wq->mutex);
-		LIST_REMOVE(we, chain);
-		if (!wq->spare) {
-			wq->spare = we;
+
+		f = 1;
+		if (wq) {
+			pthread_mutex_lock(&wq->mutex);
+			if (!wq->spare) {
+				wq->spare = we;
+				f = 0;
+			}
 			pthread_mutex_unlock(&wq->mutex);
-		} else {
-			pthread_mutex_unlock(&wq->mutex);
-			close(we->pipe_fd[0]);
-			close(we->pipe_fd[1]);
-			_tc_fd_unregister(&we->read_tcfd);
-			free(we);
 		}
 
+		if (f) {
+			_tc_fd_unregister(&we->read_tcfd);
+			close(we->pipe_fd[0]);
+			close(we->pipe_fd[1]);
+			free(we);
+		}
 	}
 }
 
@@ -688,7 +697,7 @@ void tc_waitq_wait(struct tc_waitq *wq) /* do not use! */
 	tc_scheduler();
 	if (worker.woken_by_event != &e)
 		remove_event_fd(&e, &we->read_tcfd);
-	tc_waitq_finish_wait(we);
+	tc_waitq_finish_wait(wq, we);
 }
 
 void tc_waitq_wakeup(struct tc_waitq *wq)
@@ -711,7 +720,7 @@ void tc_waitq_wakeup(struct tc_waitq *wq)
 
 void tc_waitq_unregister(struct tc_waitq *wq)
 {
-	/* TODO: implement */
+	/* Nothing to do. */
 }
 
 void tc_signal_init(struct tc_signal *s)
@@ -742,7 +751,7 @@ void _signal_gets_delivered(struct tc_fd *tcfd, struct event *e)
 
 	we = container_of(tcfd, struct waitq_ev, read_tcfd);
 
-	tc_waitq_finish_wait(we);
+	tc_waitq_finish_wait(NULL, we);
 	free(e);
 }
 
@@ -772,7 +781,7 @@ void tc_signal_disable(struct tc_signal *s)
 	pthread_mutex_unlock(&we->read_tcfd.mutex);
 	pthread_mutex_unlock(&wq->mutex);
 
-	tc_waitq_finish_wait(we);
+	tc_waitq_finish_wait(wq, we);
 }
 
 void tc_signal_unregister(struct tc_signal *s)
