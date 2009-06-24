@@ -53,7 +53,7 @@ struct worker_start_info {
 };
 
 struct scheduler {
-	pthread_mutex_t mutex;     /* protects the threds and the immediate lists */
+	spinlock_t lock;     /* protects the threds and the immediate lists */
 	struct tc_threads threads; /* currently unused. */
 	struct events immediate;
 	int nr_of_workers;
@@ -82,7 +82,7 @@ static inline void msg_exit(int code, const char *fmt, ...)
 	exit(code);
 }
 
-/* must_hold tcfd->mutex */
+/* must_hold tcfd->lock */
 static __uint32_t calc_epoll_event_mask(struct events *es)
 {
 	__uint32_t em = 0;
@@ -95,7 +95,7 @@ static __uint32_t calc_epoll_event_mask(struct events *es)
 	return em;
 }
 
-/* must_hold tcfd->mutex */
+/* must_hold tcfd->lock */
 static struct event *matching_event(__uint32_t em, struct events *es)
 {
 	struct event *e;
@@ -106,7 +106,7 @@ static struct event *matching_event(__uint32_t em, struct events *es)
 	return NULL;
 }
 
-/* must_hold tcfd->mutex */
+/* must_hold tcfd->lock */
 static void arm(struct tc_fd *tcfd)
 {
 	struct epoll_event epe;
@@ -122,7 +122,7 @@ static void arm(struct tc_fd *tcfd)
 		msg_exit(1, "epoll_ctl failed with %m\n");
 }
 
-/* must_hold tcfd->mutex */
+/* must_hold tcfd->lock */
 static inline void remove_event(struct event *e)
 {
 	LIST_REMOVE(e, chain);
@@ -136,10 +136,10 @@ void add_event_fd(struct event *e, __uint32_t ep_events, enum tc_event_flag flag
  	e->ep_events = ep_events;
  	e->flags = flags;
 
-	pthread_mutex_lock(&tcfd->mutex);
+	spin_lock(&tcfd->lock);
 	LIST_INSERT_HEAD(&tcfd->events, e, chain);
 	arm(tcfd);
-	pthread_mutex_unlock(&tcfd->mutex);
+	spin_unlock(&tcfd->lock);
 }
 
 static void add_event_cr(struct event *e, __uint32_t ep_events, enum tc_event_flag flags, struct tc_thread *tc)
@@ -149,16 +149,16 @@ static void add_event_cr(struct event *e, __uint32_t ep_events, enum tc_event_fl
  	e->ep_events = ep_events;
  	e->flags = flags;
 
-	pthread_mutex_lock(&sched.mutex);
+	spin_lock(&sched.lock);
 	LIST_INSERT_HEAD(&sched.immediate, e, chain);
-	pthread_mutex_unlock(&sched.mutex);
+	spin_unlock(&sched.lock);
 }
 
 void remove_event_fd(struct event *e, struct tc_fd *tcfd)
 {
-	pthread_mutex_lock(&tcfd->mutex);
+	spin_lock(&tcfd->lock);
 	remove_event(e);
-	pthread_mutex_unlock(&tcfd->mutex);
+	spin_unlock(&tcfd->lock);
 }
 
 void tc_thread_free(struct tc_thread *tc)
@@ -180,7 +180,7 @@ void tc_scheduler(void)
 {
 	struct event *e;
 
-	pthread_mutex_lock(&sched.mutex);
+	spin_lock(&sched.lock);
 	e = LIST_FIRST(&sched.immediate);
 	while (e) {
 		worker.woken_by_event = e;
@@ -189,7 +189,7 @@ void tc_scheduler(void)
 			remove_event(e);
 			switch(e->flags) {
 			case EF_READY:
-				pthread_mutex_unlock(&sched.mutex);
+				spin_unlock(&sched.lock);
 				switch_to(e->tc);
 				return;
 			case EF_EXITING:
@@ -201,7 +201,7 @@ void tc_scheduler(void)
 		}
 		e = LIST_NEXT(e, chain);
 	}
-	pthread_mutex_unlock(&sched.mutex);
+	spin_unlock(&sched.lock);
 
 	switch_to(&worker.sched_p2); /* always -> scheduler_part2()*/
 }
@@ -226,20 +226,20 @@ static void scheduler_part2()
 
 		tcfd = (struct tc_fd *)worker.epe.data.ptr;
 
-		pthread_mutex_lock(&tcfd->mutex);
+		spin_lock(&tcfd->lock);
 		tcfd->ep_events = -1; /* recalc them */
 
 		e = matching_event(worker.epe.events, &tcfd->events);
 		if (!e) {
 			arm(tcfd);
-			pthread_mutex_unlock(&tcfd->mutex);
+			spin_unlock(&tcfd->lock);
 			continue;
 		}
 
 		tc = e->tc;
 		remove_event(e);
 
-		pthread_mutex_unlock(&tcfd->mutex);
+		spin_unlock(&tcfd->lock);
 
 		worker.woken_by_event = e;
 		worker.woken_by_tcfd = tcfd;
@@ -276,7 +276,7 @@ void tc_init()
 {
 	LIST_INIT(&sched.immediate);
 	LIST_INIT(&sched.threads);
-	pthread_mutex_init(&sched.mutex, NULL);
+	spin_lock_init(&sched.lock);
 
 	tc_worker_init(0);
 
@@ -290,6 +290,8 @@ static void *worker_pthread(void *arg)
 	struct worker_start_info *wsi = (struct worker_start_info *)arg;
 	int nr;
 
+	printf("starting\n");
+
 	nr = wsi->nr;
 	if (nr == 0) {
 		tc_init();
@@ -298,6 +300,7 @@ static void *worker_pthread(void *arg)
 		wsi->data = NULL;
 		wsi->name = NULL;
 	}
+	printf("unlocking...\n");
 	pthread_mutex_unlock(&wsi->mutex);
 
 	tc_worker_init(nr);
@@ -335,6 +338,8 @@ void tc_run(void (*func)(void *), void *data, char* name, int nr_of_workers)
 	for (i = 0; i < nr_of_workers; i++) {
 		pthread_join(threads[i], NULL);
 	}
+
+	pthread_mutex_destroy(&wsi.mutex);
 }
 
 
@@ -365,11 +370,11 @@ void tc_die()
 
 	add_event_cr(&e, 0, EF_EXITING, tc);
 
-	pthread_mutex_lock(&sched.mutex);
+	spin_lock(&sched.lock);
 	LIST_REMOVE(tc, chain);
 	if (tc->is_on_threads_chain)
 		LIST_REMOVE(tc, threads_chain);
-	pthread_mutex_unlock(&sched.mutex);
+	spin_unlock(&sched.lock);
 
 	tc_waitq_wakeup(&tc->exit_waiters);
 
@@ -415,9 +420,9 @@ struct tc_thread *tc_thread_new(void (*func)(void *), void *data, char* name)
 	tc_waitq_init(&tc->exit_waiters);
 	atomic_set(&tc->refcnt, 0);
 
-	pthread_mutex_lock(&sched.mutex);
+	spin_lock(&sched.lock);
 	LIST_INSERT_HEAD(&sched.threads, tc, chain);
-	pthread_mutex_unlock(&sched.mutex);
+	spin_unlock(&sched.lock);
 	add_event_cr(&e1, 0, EF_READY, tc);           /* removed in the tc_scheduler */
 	add_event_cr(&e2, 0, EF_READY, tc_current()); /* removed in the tc_scheduler */
 	tc_scheduler(); /* child first, policy. */
@@ -435,10 +440,10 @@ void tc_threads_new(struct tc_threads *threads, void (*func)(void *), void *data
 	for (i = 0; i < sched.nr_of_workers; i++) {
 		asprintf(&ename, name, i);
 		tc = tc_thread_new(func, data, ename);
-		pthread_mutex_lock(&sched.mutex);
+		spin_lock(&sched.lock);
 		LIST_INSERT_HEAD(threads, tc, threads_chain);
 		tc->is_on_threads_chain = 1;
-		pthread_mutex_unlock(&sched.mutex);
+		spin_unlock(&sched.lock);
 	}
 }
 
@@ -446,13 +451,13 @@ void tc_threads_wait(struct tc_threads *threads)
 {
 	struct tc_thread *tc;
 
-	pthread_mutex_lock(&sched.mutex);
+	spin_lock(&sched.lock);
 	while ((tc = LIST_FIRST(threads))) {
-		pthread_mutex_unlock(&sched.mutex);
+		spin_unlock(&sched.lock);
 		tc_thread_wait(tc);
-		pthread_mutex_lock(&sched.mutex);
+		spin_lock(&sched.lock);
 	}
-	pthread_mutex_unlock(&sched.mutex);
+	spin_unlock(&sched.lock);
 }
 
 static void _tc_fd_init(struct tc_fd *tcfd, int fd)
@@ -479,7 +484,7 @@ static void _tc_fd_init(struct tc_fd *tcfd, int fd)
 	if (epoll_ctl(sched.efd, EPOLL_CTL_ADD, fd, &epe))
 		msg_exit(1, "epoll_ctl failed with %m\n");
 
-	pthread_mutex_init(&tcfd->mutex, NULL);
+	spin_lock_init(&tcfd->lock);
 }
 
 struct tc_fd *tc_register_fd(int fd)
@@ -499,10 +504,10 @@ static void _tc_fd_unregister(struct tc_fd *tcfd)
 {
 	struct epoll_event epe = { };
 
-	pthread_mutex_lock(&tcfd->mutex);
+	spin_lock(&tcfd->lock);
 	if (!LIST_EMPTY(&tcfd->events))
 		msg_exit(1, "event list not emptly in tc_unregister_fd()\n");
-	pthread_mutex_unlock(&tcfd->mutex);
+	spin_unlock(&tcfd->lock);
 
 	if (epoll_ctl(sched.efd, EPOLL_CTL_DEL, tcfd->fd, &epe))
 		msg_exit(1, "epoll_ctl failed with %m\n");
@@ -586,13 +591,13 @@ enum tc_rv tc_thread_wait(struct tc_thread *wait_for)
 	struct event e;
 	enum tc_rv rv;
 
-	pthread_mutex_lock(&sched.mutex);
+	spin_lock(&sched.lock);
 	rv = _thread_valid(wait_for);  /* wait_for might have already exited */
 	if (rv == RV_OK) {
 		we = tc_waitq_prepare_to_wait(&wait_for->exit_waiters, &e);
 		add_event_fd(&e, EPOLLIN, EF_ALL, &we->read_tcfd);
 	}
-	pthread_mutex_unlock(&sched.mutex);
+	spin_unlock(&sched.lock);
 	if (rv == RV_THREAD_NA)
 		return rv;
 
@@ -611,7 +616,7 @@ enum tc_rv tc_thread_wait(struct tc_thread *wait_for)
 
 void tc_waitq_init(struct tc_waitq *wq)
 {
-	pthread_mutex_init(&wq->mutex, NULL);
+	spin_lock_init(&wq->lock);
 	wq->active = NULL;
 	wq->spare = NULL;
 }
@@ -620,7 +625,7 @@ struct waitq_ev *tc_waitq_prepare_to_wait(struct tc_waitq *wq, struct event *e)
 {
 	struct waitq_ev *we;
 
-	pthread_mutex_lock(&wq->mutex);
+	spin_lock(&wq->lock);
 	if (!wq->active) {
 		if (wq->spare) {
 			wq->active = wq->spare;
@@ -639,7 +644,7 @@ struct waitq_ev *tc_waitq_prepare_to_wait(struct tc_waitq *wq, struct event *e)
 		}
 	}
 	we = wq->active;
-	pthread_mutex_unlock(&wq->mutex);
+	spin_unlock(&wq->lock);
 	atomic_inc(&we->count);
 
 	return we;
@@ -670,12 +675,12 @@ void tc_waitq_finish_wait(struct tc_waitq *wq, struct waitq_ev *we)
 
 		f = 1;
 		if (wq) {
-			pthread_mutex_lock(&wq->mutex);
+			spin_lock(&wq->lock);
 			if (!wq->spare) {
 				wq->spare = we;
 				f = 0;
 			}
-			pthread_mutex_unlock(&wq->mutex);
+			spin_unlock(&wq->lock);
 		}
 
 		if (f) {
@@ -705,12 +710,12 @@ void tc_waitq_wakeup(struct tc_waitq *wq)
 	struct waitq_ev *we = NULL;
 	char c = 'w';
 
-	pthread_mutex_lock(&wq->mutex);
+	spin_lock(&wq->lock);
 	if (wq->active) {
 		we = wq->active;
 		wq->active = NULL;
 	}
-	pthread_mutex_unlock(&wq->mutex);
+	spin_unlock(&wq->lock);
 
 	if (we) {
 		if (write(we->pipe_fd[1], &c, 1) != 1)
@@ -761,15 +766,15 @@ void tc_signal_disable(struct tc_signal *s)
 	struct tc_waitq *wq = &s->wq;
 	struct event *e;
 
-	pthread_mutex_lock(&wq->mutex);
+	spin_lock(&wq->lock);
 	we = wq->active;
 
 	if (!we) {
-		pthread_mutex_unlock(&wq->mutex);
+		spin_unlock(&wq->lock);
 		return;
 	}
 
-	pthread_mutex_lock(&we->read_tcfd.mutex);
+	spin_lock(&we->read_tcfd.lock);
 	LIST_FOREACH(e, &we->read_tcfd.events, chain) {
 		if (e->tc == tc_current()) {
 			remove_event(e);
@@ -778,8 +783,8 @@ void tc_signal_disable(struct tc_signal *s)
 			break;
 		}
 	}
-	pthread_mutex_unlock(&we->read_tcfd.mutex);
-	pthread_mutex_unlock(&wq->mutex);
+	spin_unlock(&we->read_tcfd.lock);
+	spin_unlock(&wq->lock);
 
 	tc_waitq_finish_wait(wq, we);
 }

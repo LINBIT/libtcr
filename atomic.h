@@ -23,6 +23,26 @@ static inline int atomic_set_if_eq(int new_val, int eq_val, atomic_t *v)
 	return __sync_bool_compare_and_swap(&v->counter, eq_val, new_val);
 }
 
+typedef struct {
+	int lock;
+} spinlock_t;
+
+static inline void spin_lock_init(spinlock_t *l)
+{
+	l->lock = 0;
+}
+
+static inline void spin_lock(spinlock_t *l)
+{
+	while (!__sync_bool_compare_and_swap(&l->lock, 0, 1))
+	       ;
+}
+
+static inline void spin_unlock(spinlock_t *l)
+{
+	l->lock = 0;
+}
+
 #define atomic_dec(v) atomic_sub_return(1, v)
 #define atomic_inc(v) atomic_add_return(1, v)
 #endif

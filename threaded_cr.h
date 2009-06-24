@@ -35,7 +35,7 @@ LIST_HEAD(events, event);
 struct tc_fd {
 	int fd;
 	struct events events;
-	pthread_mutex_t mutex; /* protects the events list */
+	spinlock_t lock; /* protects the events list */
 	__uint32_t ep_events;  /* current mask */
 };
 
@@ -52,7 +52,7 @@ LIST_HEAD(wait_evs, waitq_ev);
 struct tc_waitq {
 	struct waitq_ev *active;
 	struct waitq_ev *spare;
-	pthread_mutex_t mutex;
+	spinlock_t lock;
 };
 
 struct tc_signal {
