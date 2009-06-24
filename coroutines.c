@@ -9,11 +9,11 @@
 #define STACK_ALIGN 16
 
 struct coroutine {
-	void* uptr; /* is first by intention. so we can keep coroutine opaque */
+	void* uptr;               /* is first by intention. so we can keep coroutine opaque */
+	struct coroutine *caller; /* second by intention. */
 	ucontext_t ctx;
 	void *arg;
 	void (*func)(void *);
-	struct coroutine *caller;
 };
 
 static __thread struct coroutine co_main;
@@ -76,9 +76,10 @@ struct coroutine *cr_create(void (*func)(void *), void *arg, int stack_size)
 void cr_call(struct coroutine *cr)
 {
 	struct coroutine *previous = __cr_current;
+
+	cr->caller = previous;
 	__cr_current = cr;
 
-	cr->caller = __cr_current;
 	if (swapcontext(&previous->ctx, &cr->ctx)) {
 		fprintf(stderr, "swapcontext() failed.\n");
 		exit(1);

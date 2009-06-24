@@ -5,8 +5,17 @@ typedef struct {
 	int counter;
 } atomic_t;
 
-#define atomic_read(v)		((v)->counter)
-#define atomic_set(v, i)	(((v)->counter) = (i))
+static inline int atomic_read(atomic_t *v)
+{
+	__sync_synchronize();
+	return v->counter;
+}
+
+static inline void atomic_set(atomic_t *v, int i)
+{
+	v->counter = i;
+	__sync_synchronize();
+}
 
 static inline int atomic_add_return(int i, atomic_t *v)
 {
@@ -29,18 +38,35 @@ typedef struct {
 
 static inline void spin_lock_init(spinlock_t *l)
 {
-	l->lock = 0;
+	__sync_lock_release(&l->lock);
 }
 
+/*
 static inline void spin_lock(spinlock_t *l)
 {
 	while (!__sync_bool_compare_and_swap(&l->lock, 0, 1))
 	       ;
 }
+*/
+
+static inline void spin_lock(spinlock_t *l)
+{
+	int i = 0;
+	while (!__sync_bool_compare_and_swap(&l->lock, 0, 1)) {
+		i++;
+		if ((i & ((1<<12)-1)) == 0) /* every 4096 spins, call sched_yield() */
+			sched_yield();
+
+		if ((i>>22) & 1) { /* eventually abort the program. */
+			fprintf(stderr, "spinning too long in spin_lock()\n");
+			exit(1);
+		}
+	}
+}
 
 static inline void spin_unlock(spinlock_t *l)
 {
-	l->lock = 0;
+	__sync_lock_release(&l->lock);
 }
 
 #define atomic_dec(v) atomic_sub_return(1, v)

@@ -32,4 +32,8 @@ static inline void cr_set_uptr(struct coroutine *cr, void *uptr)
 	*(void **)cr = uptr;
 }
 
+static inline struct coroutine *cr_caller(void)
+{
+	return (struct coroutine *)(((void **)__cr_current)[1]);
+}
 #endif

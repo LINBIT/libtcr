@@ -8,6 +8,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdarg.h>
+#include <assert.h>
 
 #include "atomic.h"
 #include "coroutines.h"
@@ -28,6 +29,7 @@ struct tc_thread {
 	struct coroutine *cr;
 	struct tc_waitq exit_waiters;
 	atomic_t refcnt;
+	spinlock_t running;
 	unsigned int is_on_threads_chain; /* TODO: Remove the threads_chain, and this field. Make it sane. */
 };
 
@@ -172,10 +174,26 @@ void tc_thread_free(struct tc_thread *tc)
 
 static void switch_to(struct tc_thread *new)
 {
-	struct tc_thread *previous = tc_current();
-	printf(" switch(%d): %s -> %s\n", worker.nr, previous->name, new->name);
+	struct tc_thread *previous;
+
+	/* previous = tc_current();
+	   printf(" switch(%d): %s -> %s\n", worker.nr, previous->name, new->name); */
+
+	/* It can happen that the stack frame we want to switch to is still active,
+	   in a rare condition: A tc_thread reads a few byte from an fd, and calls
+	   tc_wait_fd(), although there is still input available. That call enables
+	   the epoll-event again. Before that tc_thread makes it to the scheduler
+	   (and epoll_wait), an other worker returns from its epoll_wait call and
+	   switches to the same tc_thread again. That causes bad stack corruption
+	   of course.
+	   To circumvent that we spin here until the tc_thread is no longer running */
+
+	spin_lock(&new->running);
 
 	cr_call(new->cr);
+
+	previous = (struct tc_thread *)cr_uptr(cr_caller());
+	spin_unlock(&previous->running);
 }
 
 void tc_scheduler(void)
@@ -189,7 +207,7 @@ void tc_scheduler(void)
 		worker.woken_by_tcfd  = NULL;
 		if (e->tc != tc_current()) {
 			remove_event(e);
-			switch(e->flags) {
+			switch (e->flags) {
 			case EF_READY:
 				spin_unlock(&sched.lock);
 				switch_to(e->tc);
@@ -262,7 +280,9 @@ void tc_worker_init(int i)
 	worker.main_thread.cr = cr_current();
 	cr_set_uptr(cr_current(), &worker.main_thread);
 	tc_waitq_init(&worker.main_thread.exit_waiters);
-
+	atomic_set(&worker.main_thread.refcnt, 0);
+	spin_lock_init(&worker.main_thread.running);
+	spin_lock(&worker.main_thread.running); /* runs currently */
 	/* LIST_INSERT_HEAD(&sched.threads, &worker.main_thread, chain); */
 
 	asprintf(&worker.sched_p2.name, "sched_%d", i);
@@ -272,6 +292,8 @@ void tc_worker_init(int i)
 
 	cr_set_uptr(worker.sched_p2.cr, &worker.sched_p2);
 	tc_waitq_init(&worker.sched_p2.exit_waiters);
+	atomic_set(&worker.sched_p2.refcnt, 0);
+	spin_lock_init(&worker.sched_p2.running);
 }
 
 void tc_init()
@@ -292,8 +314,6 @@ static void *worker_pthread(void *arg)
 	struct worker_start_info *wsi = (struct worker_start_info *)arg;
 	int nr;
 
-	printf("starting\n");
-
 	nr = wsi->nr;
 	if (nr == 0) {
 		tc_init();
@@ -302,7 +322,6 @@ static void *worker_pthread(void *arg)
 		wsi->data = NULL;
 		wsi->name = NULL;
 	}
-	printf("unlocking...\n");
 	pthread_mutex_unlock(&wsi->mutex);
 
 	tc_worker_init(nr);
@@ -393,6 +412,10 @@ void tc_die()
 void tc_setup(void *data)
 {
 	struct setup_info *i = (struct setup_info *)data;
+	struct tc_thread *previous;
+
+	previous = (struct tc_thread *)cr_uptr(cr_caller());
+	spin_unlock(&previous->running);
 
 	i->func(i->data);
 
@@ -421,6 +444,7 @@ struct tc_thread *tc_thread_new(void (*func)(void *), void *data, char* name)
 	tc->name = name;
 	tc_waitq_init(&tc->exit_waiters);
 	atomic_set(&tc->refcnt, 0);
+	spin_lock_init(&tc->running);
 
 	spin_lock(&sched.lock);
 	LIST_INSERT_HEAD(&sched.threads, tc, chain);
