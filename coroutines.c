@@ -1,5 +1,7 @@
+#include <sys/mman.h>
 #include <pthread.h>
 #include <ucontext.h>
+#include <unistd.h>
 #include <errno.h>
 #include <stdlib.h>
 #include <stdio.h>
@@ -44,10 +46,39 @@ static void cr_setup()
 	exit(1);
 }
 
+#define STACK_OVERFLOW_PROTECTION
+
 struct coroutine *cr_create(void (*func)(void *), void *arg, int stack_size)
 {
 	struct coroutine *cr;
 	void *stack;
+
+#ifdef STACK_OVERFLOW_PROTECTION
+	int ps = sysconf(_SC_PAGE_SIZE);
+	void *ovp;
+
+	stack = mmap(NULL, stack_size, PROT_READ | PROT_WRITE,
+		     MAP_PRIVATE | MAP_ANONYMOUS | MAP_GROWSDOWN | MAP_STACK,
+		     -1 ,0);
+	if (stack == MAP_FAILED)
+		return NULL;
+
+	ovp = mmap(stack - ps, ps, PROT_NONE,
+		   MAP_PRIVATE | MAP_ANONYMOUS | MAP_STACK | MAP_FIXED,
+		   -1, 0);
+
+	if (stack == MAP_FAILED) {
+		munmap(stack, stack_size);
+		return NULL;
+	}
+
+	cr = malloc(sizeof(struct coroutine));
+	if (!cr) {
+		munmap(ovp, ps);
+		munmap(stack, stack_size);
+		return NULL;
+	}
+#else
 
 	cr = malloc((sizeof(struct coroutine) + stack_size + STACK_ALIGN - 1) & ~(STACK_ALIGN - 1));
 	if (!cr)
@@ -55,6 +86,7 @@ struct coroutine *cr_create(void (*func)(void *), void *arg, int stack_size)
 
 	stack = (void *)(((unsigned long)cr + sizeof(struct coroutine) + STACK_ALIGN - 1) & ~(STACK_ALIGN - 1));
 
+#endif
 	if (getcontext(&cr->ctx)) {
 		free(cr);
 		return NULL;
@@ -72,6 +104,20 @@ struct coroutine *cr_create(void (*func)(void *), void *arg, int stack_size)
 
 	return cr;
 }
+
+void cr_delete(struct coroutine *cr)
+{
+#ifdef STACK_OVERFLOW_PROTECTION
+	int ps = sysconf(_SC_PAGE_SIZE);
+
+	munmap(cr->ctx.uc_stack.ss_sp, cr->ctx.uc_stack.ss_size);
+	munmap(cr->ctx.uc_stack.ss_sp - ps, ps);
+	free(cr);
+#else
+	free(cr);
+#endif
+}
+
 
 void cr_call(struct coroutine *cr)
 {
