@@ -1,6 +1,8 @@
 #ifndef COROUTINES_H
 #define COROUTINES_H
 
+#include <stdlib.h>
+
 struct coroutine;
 
 extern __thread struct coroutine *__cr_current;
