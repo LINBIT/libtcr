@@ -1,6 +1,9 @@
 #ifndef ATOMIC_H
 #define ATOMIC_H
 
+#include <stdio.h>
+#include <stdlib.h>
+
 typedef struct {
 	int counter;
 } atomic_t;
