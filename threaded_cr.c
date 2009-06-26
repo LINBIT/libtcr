@@ -47,15 +47,6 @@ struct worker_struct {
 	struct epoll_event epe;
 };
 
-struct worker_start_info {
-	int nr;
-	struct tc_thread *tc;
-	void *data;
-	void (*func)(void *);
-	char *name;
-	pthread_mutex_t mutex;
-};
-
 struct scheduler {
 	spinlock_t lock;     /* protects the threds and the immediate lists */
 	struct tc_threads threads; /* currently unused. */
@@ -65,6 +56,7 @@ struct scheduler {
 };
 
 static struct scheduler sched;
+static struct tc_thread *tc_main;
 static __thread struct worker_struct worker;
 
 void _signal_gets_delivered(struct tc_fd *tcfd, struct event *e);
@@ -317,28 +309,16 @@ void tc_init()
 
 static void *worker_pthread(void *arg)
 {
-	struct worker_start_info *wsi = (struct worker_start_info *)arg;
-	int nr;
-
-	nr = wsi->nr;
-	if (nr == 0) {
-		tc_init();
-		wsi->tc = tc_thread_new(wsi->func, wsi->data, wsi->name);
-		wsi->func = NULL;
-		wsi->data = NULL;
-		wsi->name = NULL;
-	}
-	pthread_mutex_unlock(&wsi->mutex);
+	int nr = (int)arg;
 
 	tc_worker_init(nr);
-	tc_thread_wait(wsi->tc); /* calls tc_scheduler() */
+	tc_thread_wait(tc_main); /* calls tc_scheduler() */
 	return NULL;
 }
 
 
 void tc_run(void (*func)(void *), void *data, char* name, int nr_of_workers)
 {
-	struct worker_start_info wsi;
 	pthread_t *threads;
 	int i;
 
@@ -346,27 +326,21 @@ void tc_run(void (*func)(void *), void *data, char* name, int nr_of_workers)
 	if (!threads)
 		msg_exit(1, "alloca() in tc_run failed\n");
 
+	tc_init();
+	tc_worker_init(0);
+
 	sched.nr_of_workers = nr_of_workers;
 
-	wsi.nr = 0;
-	wsi.func = func;
-	wsi.data = data;
-	wsi.name = name;
-	pthread_mutex_init(&wsi.mutex, NULL);
-	pthread_mutex_lock(&wsi.mutex);
-	pthread_create(threads + 0, NULL, worker_pthread, &wsi);
+	tc_main = tc_thread_new(func, data, name);
 
-	for (i = 1; i < nr_of_workers; i++) {
-		pthread_mutex_lock(&wsi.mutex);
-		wsi.nr = i;
-		pthread_create(threads + i, NULL, worker_pthread, &wsi);
-	}
+	threads[0] = pthread_self(); /* actually unused */
+	for (i = 1; i < nr_of_workers; i++)
+		pthread_create(threads + i, NULL, worker_pthread, (void*)i);
 
-	for (i = 0; i < nr_of_workers; i++) {
+	tc_thread_wait(tc_main); /* calls tc_scheduler() */
+
+	for (i = 1; i < nr_of_workers; i++)
 		pthread_join(threads[i], NULL);
-	}
-
-	pthread_mutex_destroy(&wsi.mutex);
 }
 
 
