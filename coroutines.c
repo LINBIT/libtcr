@@ -55,26 +55,20 @@ struct coroutine *cr_create(void (*func)(void *), void *arg, int stack_size)
 
 #ifdef STACK_OVERFLOW_PROTECTION
 	int ps = sysconf(_SC_PAGE_SIZE);
-	void *ovp;
 
-	stack = mmap(NULL, stack_size, PROT_READ | PROT_WRITE,
+	stack = mmap(NULL, stack_size + ps, PROT_READ | PROT_WRITE,
 		     MAP_PRIVATE | MAP_ANONYMOUS | MAP_GROWSDOWN | MAP_STACK,
 		     -1 ,0);
 	if (stack == MAP_FAILED)
 		return NULL;
 
-	ovp = mmap(stack - ps, ps, PROT_NONE,
-		   MAP_PRIVATE | MAP_ANONYMOUS | MAP_STACK | MAP_FIXED,
-		   -1, 0);
-
-	if (stack == MAP_FAILED) {
+	if (mprotect(stack, ps, PROT_NONE)) {
 		munmap(stack, stack_size);
 		return NULL;
 	}
 
 	cr = malloc(sizeof(struct coroutine));
 	if (!cr) {
-		munmap(ovp, ps);
 		munmap(stack, stack_size);
 		return NULL;
 	}
@@ -94,7 +88,7 @@ struct coroutine *cr_create(void (*func)(void *), void *arg, int stack_size)
 
 	cr->ctx.uc_stack.ss_flags = 0;
 	cr->ctx.uc_stack.ss_sp = stack;
-	cr->ctx.uc_stack.ss_size = stack_size;
+	cr->ctx.uc_stack.ss_size = stack_size + ps;
 	cr->ctx.uc_link = NULL;
 	cr->arg = arg;
 	cr->func = func;
@@ -108,14 +102,11 @@ struct coroutine *cr_create(void (*func)(void *), void *arg, int stack_size)
 void cr_delete(struct coroutine *cr)
 {
 #ifdef STACK_OVERFLOW_PROTECTION
-	int ps = sysconf(_SC_PAGE_SIZE);
-
 	munmap(cr->ctx.uc_stack.ss_sp, cr->ctx.uc_stack.ss_size);
-	munmap(cr->ctx.uc_stack.ss_sp - ps, ps);
-	free(cr);
 #else
-	free(cr);
+	free(cr->ctx.uc_stack.ss_sp);
 #endif
+	free(cr);
 }
 
 
