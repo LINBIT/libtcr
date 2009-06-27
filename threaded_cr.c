@@ -159,8 +159,9 @@ void remove_event_fd(struct event *e, struct tc_fd *tcfd)
 
 void tc_thread_free(struct tc_thread *tc)
 {
-	cr_delete(tc->cr);
+	spin_lock(&tc->running); /* Make sure it has reached switch_to(), after posting EF_EXITING */
 	tc_waitq_unregister(&tc->exit_waiters);
+	cr_delete(tc->cr);
 	free(tc);
 }
 
@@ -369,8 +370,6 @@ void tc_die()
 
 	/* printf("exiting: %s\n", tc->name); */
 
-	add_event_cr(&e, 0, EF_EXITING, tc);
-
 	spin_lock(&sched.lock);
 	LIST_REMOVE(tc, chain);
 	if (tc->is_on_threads_chain)
@@ -379,11 +378,11 @@ void tc_die()
 
 	tc_waitq_wakeup(&tc->exit_waiters);
 
-	/* refcnt = 1 because we have the EF_EXITING event referencing this tc */
-	if (atomic_read(&tc->refcnt) > 1)
+	if (atomic_read(&tc->refcnt) > 0)
 		msg_exit(1, "tc_die(%s): refcnt = %d. Signals still enabled?\n",
 			 tc->name, atomic_read(&tc->refcnt));
 
+	add_event_cr(&e, 0, EF_EXITING, tc);
 	tc_scheduler(); /* The scheduler will free me */
 	/* Not reached. */
 	msg_exit(1, "tc_scheduler() returned in tc_die()\n");
