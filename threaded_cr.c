@@ -539,7 +539,7 @@ static void _tc_fd_unregister(struct tc_fd *tcfd)
 
 	spin_lock(&tcfd->lock);
 	if (!LIST_EMPTY(&tcfd->events))
-		msg_exit(1, "event list not emptly in tc_unregister_fd()\n");
+		msg_exit(1, "event list not empty in tc_unregister_fd()\n");
 	spin_unlock(&tcfd->lock);
 
 	if (epoll_ctl(sched.efd, EPOLL_CTL_DEL, tcfd->fd, &epe))
