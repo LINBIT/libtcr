@@ -301,8 +301,6 @@ void tc_init()
 	LIST_INIT(&sched.threads);
 	spin_lock_init(&sched.lock);
 
-	tc_worker_init(0);
-
 	sched.efd = epoll_create(1);
 	if (sched.efd < 0)
 		msg_exit(1, "epoll_create failed with %m\n");
