@@ -22,6 +22,13 @@ struct waitq_ev {
 	struct tc_fd read_tcfd;
 };
 
+enum thread_state {
+	SLEEPING,
+	RUNNING,
+	SIGNALLED, /* Got signal while was running*/
+	EXITING
+};
+
 struct tc_thread {
 	LIST_ENTRY(tc_thread) chain;         /* list of all threads*/
 	LIST_ENTRY(tc_thread) threads_chain; /* list of thrads created with one call to tc_threads_new() */
@@ -29,6 +36,7 @@ struct tc_thread {
 	struct coroutine *cr;
 	struct tc_waitq exit_waiters;
 	atomic_t refcnt;
+	atomic_t state;		/* See enum thread_state */
 	spinlock_t running;
 	unsigned int is_on_threads_chain; /* TODO: Remove the threads_chain, and this field. Make it sane. */
 };
@@ -132,6 +140,9 @@ void add_event_fd(struct event *e, __uint32_t ep_events, enum tc_event_flag flag
  	e->ep_events = ep_events;
  	e->flags = flags;
 
+	if (flags != EF_ALL_FREE)
+		atomic_set_if_eq(SLEEPING, RUNNING, &tc_current()->state);
+
 	spin_lock(&tcfd->lock);
 	LIST_INSERT_HEAD(&tcfd->events, e, chain);
 	arm(tcfd);
@@ -144,6 +155,8 @@ static void add_event_cr(struct event *e, __uint32_t ep_events, enum tc_event_fl
 	e->tc = tc;
  	e->ep_events = ep_events;
  	e->flags = flags;
+
+	atomic_set_if_eq(SLEEPING, RUNNING, &tc_current()->state);
 
 	spin_lock(&sched.lock);
 	LIST_INSERT_HEAD(&sched.immediate, e, chain);
@@ -170,7 +183,7 @@ static void switch_to(struct tc_thread *new)
 	struct tc_thread *previous;
 
 	/* previous = tc_current();
-	   printf(" switch(%d): %s -> %s\n", worker.nr, previous->name, new->name); */
+	   printf(" (%d) switch: %s -> %s\n", worker.nr, previous->name, new->name); */
 
 	/* It can happen that the stack frame we want to switch to is still active,
 	   in a rare condition: A tc_thread reads a few byte from an fd, and calls
@@ -180,8 +193,10 @@ static void switch_to(struct tc_thread *new)
 	   switches to the same tc_thread again. That causes bad stack corruption
 	   of course.
 	   To circumvent that we spin here until the tc_thread is no longer running */
-
 	spin_lock(&new->running);
+
+	/* If it was sleeping it is running now. If it was signalled it stays signalled */
+	atomic_set_if_eq(RUNNING, SLEEPING, &new->state);
 
 	cr_call(new->cr);
 
@@ -193,6 +208,13 @@ void tc_scheduler(void)
 {
 	struct tc_thread *tc;
 	struct event *e;
+
+	if (atomic_set_if_eq(RUNNING, SIGNALLED, &tc_current()->state)) {
+		worker.woken_by_event = NULL; /* compares != to any real address */
+		worker.woken_by_tcfd  = NULL;
+
+		return;
+	}
 
 	spin_lock(&sched.lock);
 	e = LIST_FIRST(&sched.immediate);
@@ -263,8 +285,12 @@ static void scheduler_part2()
 		worker.woken_by_event = e;
 		worker.woken_by_tcfd = tcfd;
 
-		if (e->flags == EF_ALL_FREE)
+		if (e->flags == EF_ALL_FREE) {
 			_signal_gets_delivered(tcfd, e);
+
+			if (atomic_swap(&tc->state, SIGNALLED) >= RUNNING)
+				continue;
+		}
 
 		switch_to(tc);
 	}
@@ -282,6 +308,7 @@ void tc_worker_init(int i)
 	atomic_set(&worker.main_thread.refcnt, 0);
 	spin_lock_init(&worker.main_thread.running);
 	spin_lock(&worker.main_thread.running); /* runs currently */
+	atomic_set(&worker.main_thread.state, RUNNING);
 	/* LIST_INSERT_HEAD(&sched.threads, &worker.main_thread, chain); */
 
 	asprintf(&worker.sched_p2.name, "sched_%d", i);
@@ -293,6 +320,7 @@ void tc_worker_init(int i)
 	tc_waitq_init(&worker.sched_p2.exit_waiters);
 	atomic_set(&worker.sched_p2.refcnt, 0);
 	spin_lock_init(&worker.sched_p2.running);
+	atomic_set(&worker.sched_p2.state, SLEEPING);
 }
 
 void tc_init()
@@ -366,7 +394,7 @@ void tc_die()
 	struct event e;
 	struct tc_thread *tc = tc_current();
 
-	/* printf("exiting: %s\n", tc->name); */
+	/* printf(" (%d) exiting: %s\n", worker.nr, tc->name); */
 
 	spin_lock(&sched.lock);
 	LIST_REMOVE(tc, chain);
@@ -380,8 +408,9 @@ void tc_die()
 		msg_exit(1, "tc_die(%s): refcnt = %d. Signals still enabled?\n",
 			 tc->name, atomic_read(&tc->refcnt));
 
-	add_event_cr(&e, 0, EF_EXITING, tc);
-	tc_scheduler(); /* The scheduler will free me */
+	atomic_set(&tc->state, EXITING); /* We will not get woken by sigs ;) */
+	add_event_cr(&e, 0, EF_EXITING, tc);  /* The scheduler will free me */
+	tc_scheduler();
 	/* Not reached. */
 	msg_exit(1, "tc_scheduler() returned in tc_die()\n");
 }
@@ -422,6 +451,7 @@ struct tc_thread *tc_thread_new(void (*func)(void *), void *data, char* name)
 	tc_waitq_init(&tc->exit_waiters);
 	atomic_set(&tc->refcnt, 0);
 	spin_lock_init(&tc->running);
+	atomic_set(&tc->state, SLEEPING);
 
 	spin_lock(&sched.lock);
 	LIST_INSERT_HEAD(&sched.threads, tc, chain);
@@ -673,8 +703,9 @@ void tc_waitq_finish_wait(struct tc_waitq *wq, struct waitq_ev *we)
 	char c;
 
 	if (atomic_sub_return(1, &we->count) == 0) {
-		if (read(we->pipe_fd[0], &c, 1) != 1)
-			msg_exit(1, "recycle read() in tc_waitq_wait failed %m\n");
+		read(we->pipe_fd[0], &c, 1);
+		/* Do not care if that read fails. We can finish_wait even if the
+		   we where never woken up... */
 
 		f = 1;
 		if (wq) {
@@ -745,7 +776,7 @@ void tc_signal_enable(struct tc_signal *s)
 	if (!e)
 		msg_exit(1, "malloc of event failed in tc_signal_enable\n");
 
-	/* printf("signal_enabled e=%p for %s\n", e, tc_current()->name); */
+	/* printf(" (%d) signal_enabled e=%p for %s\n", worker.nr, e, tc_current()->name); */
 
 	we = tc_waitq_prepare_to_wait(&s->wq, e);
 	add_event_fd(e, EPOLLIN, EF_ALL_FREE, &we->read_tcfd);
@@ -755,7 +786,7 @@ void _signal_gets_delivered(struct tc_fd *tcfd, struct event *e)
 {
 	struct waitq_ev *we;
 
-	/* printf("signal_gets_delivered e=%p\n", e); */
+	/* printf(" (%d) signal_gets_delivered e=%p\n", worker.nr, e); */
 
 	we = container_of(tcfd, struct waitq_ev, read_tcfd);
 

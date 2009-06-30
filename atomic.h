@@ -35,6 +35,12 @@ static inline int atomic_set_if_eq(int new_val, int eq_val, atomic_t *v)
 	return __sync_bool_compare_and_swap(&v->counter, eq_val, new_val);
 }
 
+static inline int atomic_swap(atomic_t *v, int i)
+{
+	__sync_synchronize();
+	return __sync_lock_test_and_set(&v->counter, i);
+}
+
 static inline void atomic_set_bit(int bnr, atomic_t *v)
 {
 	__sync_or_and_fetch(&v->counter, 1 << bnr);
