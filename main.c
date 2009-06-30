@@ -45,7 +45,8 @@ void *mempool_alloc(struct mempool *mp, int size)
 {
 	void *rv;
 
-	tc_waitq_wait_event(&mp->wq, _try_alloc(mp, size));
+	if (tc_waitq_wait_event(&mp->wq, _try_alloc(mp, size)) != RV_OK)
+		return NULL;
 
 	rv = malloc(size);
 	if (!rv)
@@ -56,7 +57,7 @@ void *mempool_alloc(struct mempool *mp, int size)
 void mempool_free(struct mempool *mp, void* mem, int size)
 {
 	free(mem);
-	atomic_sub_return(size, &mp->available);
+	atomic_add_return(size, &mp->available);
 	tc_waitq_wakeup(&mp->wq);
 }
 
@@ -118,6 +119,7 @@ err_out:
 }
 
 struct reader_info {
+	struct mempool   *mp;
 	struct tc_signal *all_exit;
 	struct tc_fd     *in;
 };
@@ -127,6 +129,7 @@ static void unix_socket_reader(void *data)
 	struct reader_info *ri = (struct reader_info *)data;
 	char b[10];
 	int rr;
+	void *m;
 
 	tc_signal_enable(ri->all_exit);
 
@@ -135,7 +138,15 @@ static void unix_socket_reader(void *data)
 			break;
 		rr = read(tc_fd(ri->in), b, 10);
 		tc_rearm();
-		poll(NULL, 0 ,10); /* sleep 10 milliseconds */
+
+		m = mempool_alloc(ri->mp, 1001);
+		if (!m)
+			break;
+
+		poll(NULL, 0 ,5000); /* sleep 10 milliseconds */
+
+		mempool_free(ri->mp, m, 1001);
+
 		if (rr <= 0) {
 			fprintf(stderr, "read() failed: %d, %m\n", errno);
 			exit(1);
@@ -152,14 +163,13 @@ static void stdin_reader(void *data)
 {
 	struct reader_info ri;
 	struct tc_signal all_exit;
+	struct mempool mp;
 	struct tc_fd *tcfd;
 	struct tc_threads sr;
 	char b[10];
 	int rr;
 	int fd, lfd;
 
-
-	fprintf(stderr,"test1 %d\n", 17);
 	lfd = create_unix_socket("/tmp/tc_test");
 
 	fd = accept(lfd, NULL, NULL);
@@ -170,6 +180,9 @@ static void stdin_reader(void *data)
 
 	tc_signal_init(&all_exit);
 
+	mempool_init(&mp, 3000);
+
+	ri.mp = &mp;
 	ri.all_exit = &all_exit;
 	ri.in = tc_register_fd(fd);
 	tc_threads_new(&sr, unix_socket_reader, &ri, "unix_socket_reader_%d");

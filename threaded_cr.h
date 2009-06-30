@@ -141,7 +141,7 @@ void _waitq_before_schedule(struct event *e, struct waitq_ev *we);
 int _waitq_after_schedule(struct event *e, struct waitq_ev *we);
 
 
-#define __tc_wait_event(wq, cond)					\
+#define __tc_wait_event(wq, cond, rv)					\
 do {									\
 	struct waitq_ev *we;						\
 	struct event e;							\
@@ -151,18 +151,21 @@ do {									\
 			break;						\
 		_waitq_before_schedule(&e, we);				\
 		tc_scheduler();						\
-		if (_waitq_after_schedule(&e, we))			\
+		if (_waitq_after_schedule(&e, we)) {			\
+			rv = RV_INTR;					\
 			break;						\
+		}							\
 	}								\
 	tc_waitq_finish_wait(wq, we);					\
 } while (0)
 
 #define tc_waitq_wait_event(wq, cond)			\
-do {							\
-	if (cond)					\
-		break;					\
-	__tc_wait_event(wq, cond);			\
-} while (0)
+({							\
+	enum tc_rv rv = RV_OK;				\
+	if (!cond)					\
+		__tc_wait_event(wq, cond, rv);		\
+	rv;						\
+ })
 
 
 #define container_of(ptr, type, member) ({                      \
