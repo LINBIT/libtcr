@@ -35,6 +35,22 @@ static inline int atomic_set_if_eq(int new_val, int eq_val, atomic_t *v)
 	return __sync_bool_compare_and_swap(&v->counter, eq_val, new_val);
 }
 
+static inline void atomic_set_bit(int bnr, atomic_t *v)
+{
+	__sync_or_and_fetch(&v->counter, 1 << bnr);
+}
+
+static inline void atomic_clear_bit(int bnr, atomic_t *v)
+{
+	__sync_and_and_fetch(&v->counter, ~(1 << bnr));
+}
+
+static inline int atomic_test_bit(int bnr, atomic_t *v)
+{
+	__sync_synchronize();
+	return v->counter & (1 << bnr);
+}
+
 typedef struct {
 	int lock;
 } spinlock_t;
