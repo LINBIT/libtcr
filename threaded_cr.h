@@ -66,6 +66,8 @@ LIST_HEAD(tc_threads, tc_thread);
  tc_run() is the most convenient way to initialize the threaded coroutines
  system. Alternatively use tc_init(), start a number of pthreads, and
  call tc_worker_init() and tc_scheduler() in each pthread.
+
+ Call this only once, else weird things may happen.
 */
 void tc_run(void (*func)(void *), void *data, char* name, int nr_of_workers);
 void tc_init();
