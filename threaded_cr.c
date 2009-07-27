@@ -1,6 +1,7 @@
 #define _GNU_SOURCE /* for asprintf() */
 
 #include <sys/epoll.h>
+#include <sys/eventfd.h>
 #include <unistd.h>
 #include <fcntl.h>
 #include <pthread.h>
@@ -18,7 +19,7 @@
 
 struct waitq_ev {
 	atomic_t count;
-	int pipe_fd[2];
+	int ev_fd;
 	struct tc_fd read_tcfd;
 };
 
@@ -555,22 +556,23 @@ void tc_unregister_fd(struct tc_fd *tcfd)
 void tc_mutex_init(struct tc_mutex *m)
 {
 	atomic_set(&m->count, 0);
-	if (pipe(m->pipe_fd))
-		msg_exit(1, "pipe() failed with: %m\n");
+	m->ev_fd = eventfd(0, 0);
+	if (m->ev_fd == -1)
+		msg_exit(1, "eventfd() failed with: %m\n");
 
-	_tc_fd_init(&m->read_tcfd, m->pipe_fd[0]);
+	_tc_fd_init(&m->read_tcfd, m->ev_fd);
 }
 
 enum tc_rv tc_mutex_lock(struct tc_mutex *m)
 {
 	enum tc_rv rv;
-	char c;
+	eventfd_t c;
 
 	if (atomic_add_return(1, &m->count) > 1) {
 		rv = tc_wait_fd(EPOLLIN, &m->read_tcfd);
 		if (rv != RV_OK)
 			return rv;
-		if (read(m->pipe_fd[0], &c, 1) != 1)
+		if (read(m->ev_fd, &c, sizeof(c)) != sizeof(c))
 			msg_exit(1, "mutex_lock_ read() failed %m\n");
 
 		tc_rearm();
@@ -581,14 +583,14 @@ enum tc_rv tc_mutex_lock(struct tc_mutex *m)
 
 void tc_mutex_unlock(struct tc_mutex *m)
 {
-	char c = 'w';
+	eventfd_t c = 1;
 
 	if (atomic_sub_return(1, &m->count) < 0) {
 		atomic_inc(&m->count);
 		return;
 	}
 
-	if (write(m->pipe_fd[1], &c, 1) != 1)
+	if (write(m->ev_fd, &c, sizeof(c)) != sizeof(c))
 		msg_exit(1, "write() failed with: %m\n");
 }
 
@@ -603,8 +605,7 @@ enum tc_rv tc_mutex_trylock(struct tc_mutex *m)
 void tc_mutex_unregister(struct tc_mutex *m)
 {
 	_tc_fd_unregister(&m->read_tcfd);
-	close(m->pipe_fd[0]);
-	close(m->pipe_fd[1]);
+	close(m->ev_fd);
 }
 
 static enum tc_rv _thread_valid(struct tc_thread *look_for)
@@ -668,10 +669,11 @@ struct waitq_ev *tc_waitq_prepare_to_wait(struct tc_waitq *wq, struct event *e)
 			if (!we)
 				msg_exit(1, "malloc of waitq_ev failed in tc_waitq_init\n");
 
-			if (pipe(we->pipe_fd))
-				msg_exit(1, "pipe() failed with: %m\n");
+			we->ev_fd = eventfd(0, 0);
+			if (we->ev_fd == -1)
+				msg_exit(1, "eventfd() failed with: %m\n");
 
-			_tc_fd_init(&we->read_tcfd, we->pipe_fd[0]);
+			_tc_fd_init(&we->read_tcfd, we->ev_fd);
 			atomic_set(&we->count, 0);
 			wq->active = we;
 		}
@@ -700,10 +702,10 @@ int _waitq_after_schedule(struct event *e, struct waitq_ev *we)
 void tc_waitq_finish_wait(struct tc_waitq *wq, struct waitq_ev *we)
 {
 	int f;
-	char c;
+	eventfd_t c;
 
 	if (atomic_sub_return(1, &we->count) == 0) {
-		read(we->pipe_fd[0], &c, 1);
+		read(we->ev_fd, &c, sizeof(c));
 		/* Do not care if that read fails. We can finish_wait even if the
 		   we where never woken up... */
 
@@ -719,8 +721,7 @@ void tc_waitq_finish_wait(struct tc_waitq *wq, struct waitq_ev *we)
 
 		if (f) {
 			_tc_fd_unregister(&we->read_tcfd);
-			close(we->pipe_fd[0]);
-			close(we->pipe_fd[1]);
+			close(we->ev_fd);
 			free(we);
 		}
 	}
@@ -742,7 +743,7 @@ void tc_waitq_wait(struct tc_waitq *wq) /* do not use! */
 void tc_waitq_wakeup(struct tc_waitq *wq)
 {
 	struct waitq_ev *we = NULL;
-	char c = 'w';
+	eventfd_t c = 1;
 
 	spin_lock(&wq->lock);
 	if (wq->active) {
@@ -752,7 +753,7 @@ void tc_waitq_wakeup(struct tc_waitq *wq)
 	spin_unlock(&wq->lock);
 
 	if (we) {
-		if (write(we->pipe_fd[1], &c, 1) != 1)
+		if (write(we->ev_fd, &c, sizeof(c)) != sizeof(c))
 			msg_exit(1, "write() failed with: %m\n");
 	}
 }
