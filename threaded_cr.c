@@ -567,13 +567,18 @@ enum tc_rv tc_mutex_lock(struct tc_mutex *m)
 {
 	enum tc_rv rv;
 	eventfd_t c;
+	int r;
 
 	if (atomic_add_return(1, &m->count) > 1) {
-		rv = tc_wait_fd(EPOLLIN, &m->read_tcfd);
-		if (rv != RV_OK)
-			return rv;
-		if (read(m->ev_fd, &c, sizeof(c)) != sizeof(c))
-			msg_exit(1, "mutex_lock_ read() failed %m\n");
+		while (1) {
+			rv = tc_wait_fd(EPOLLIN, &m->read_tcfd);
+			if (rv != RV_OK)
+				return rv;
+			r = read(m->ev_fd, &c, sizeof(c));
+			if (r == sizeof(c))
+				break;
+			/* fprintf(stderr, "in tc_mutex_lock read() = %d errno = %m\n", r); */
+		}
 
 		tc_rearm();
 	}
@@ -584,14 +589,16 @@ enum tc_rv tc_mutex_lock(struct tc_mutex *m)
 void tc_mutex_unlock(struct tc_mutex *m)
 {
 	eventfd_t c = 1;
+	int r;
 
-	if (atomic_sub_return(1, &m->count) < 0) {
-		atomic_inc(&m->count);
-		return;
+	r = atomic_sub_return(1, &m->count);
+
+	if (r > 0) {
+		if (write(m->ev_fd, &c, sizeof(c)) != sizeof(c))
+			msg_exit(1, "write() failed with: %m\n");
+	} else if (r < 0) {
+		msg_exit(1, "tc_mutex_unlocked() called on an unlocked mutex\n");
 	}
-
-	if (write(m->ev_fd, &c, sizeof(c)) != sizeof(c))
-		msg_exit(1, "write() failed with: %m\n");
 }
 
 enum tc_rv tc_mutex_trylock(struct tc_mutex *m)

@@ -1,10 +1,13 @@
 CFLAGS=-Wall -g
 LDFLAGS=-lpthread -g
 
-all: tc_main libtc.so
+all: libtc.so tc_main tc_mutex_test1
 
-tc_main: main.o threaded_cr.o coroutines.o
-	$(CC) $(LDFLAGS) -o $@ $^
+tc_main: main.o
+	$(CC) $(LDFLAGS) -L. -ltc -o $@ $^
+
+tc_mutex_test1: tc_mutex_test1.o
+	$(CC) $(LDFLAGS) -L. -ltc -o $@ $^
 
 clean:
 	rm -f *.o *.so
