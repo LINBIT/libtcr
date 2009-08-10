@@ -374,7 +374,13 @@ void tc_run(void (*func)(void *), void *data, char* name, int nr_of_workers)
 
 void tc_rearm()
 {
-	arm(worker.woken_by_tcfd);
+	if (worker.woken_by_tcfd) {
+		spin_lock(&worker.woken_by_tcfd->lock);
+		arm(worker.woken_by_tcfd);
+		spin_unlock(&worker.woken_by_tcfd->lock);
+	} else {
+		msg_exit(1, "worker.woken_by_tcfd is NULL in tc_rearm, tc_wait_fd called?\n");
+	}
 }
 
 enum tc_rv tc_wait_fd(__uint32_t ep_events, struct tc_fd *tcfd)
