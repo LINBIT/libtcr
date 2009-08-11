@@ -18,10 +18,13 @@
 #define DEFAULT_STACK_SIZE (1024 * 16)
 
 struct waitq_ev {
+	LIST_ENTRY(waitq_ev) chain;
 	atomic_t count;
 	int ev_fd;
 	struct tc_fd read_tcfd;
 };
+
+LIST_HEAD(waitq_evs, waitq_ev);
 
 enum thread_state {
 	SLEEPING,
@@ -57,9 +60,11 @@ struct worker_struct {
 };
 
 struct scheduler {
-	spinlock_t lock;     /* protects the threds and the immediate lists */
-	struct tc_threads threads; /* currently unused. */
+	spinlock_t lock;           /* protects the threads and the immediate lists */
+	struct tc_threads threads;
 	struct events immediate;
+	struct waitq_evs wevs;     /* List of 'flying' signals and waitq wakeup events */
+	spinlock_t wevs_lock;      /* protects the wevs list */
 	int nr_of_workers;
 	int efd;
 };
@@ -69,6 +74,7 @@ static struct tc_thread *tc_main;
 static __thread struct worker_struct worker;
 
 void _signal_gets_delivered(struct tc_fd *tcfd, struct event *e);
+enum tc_rv _signal_cancel(struct waitq_ev *we);
 
 static inline struct tc_thread *tc_current()
 {
@@ -330,7 +336,9 @@ void tc_init()
 {
 	LIST_INIT(&sched.immediate);
 	LIST_INIT(&sched.threads);
+	LIST_INIT(&sched.wevs);
 	spin_lock_init(&sched.lock);
+	spin_lock_init(&sched.wevs_lock);
 
 	sched.efd = epoll_create(1);
 	if (sched.efd < 0)
@@ -411,9 +419,18 @@ void tc_die()
 
 	tc_waitq_wakeup(&tc->exit_waiters);
 
-	if (atomic_read(&tc->refcnt) > 0)
-		msg_exit(1, "tc_die(%s): refcnt = %d. Signals still enabled?\n",
-			 tc->name, atomic_read(&tc->refcnt));
+	if (atomic_read(&tc->refcnt) > 0) {
+		struct waitq_ev *we;
+		/* Maybe there is an signal/waitq wakeup for me, lets try to find that: */
+		spin_lock(&sched.wevs_lock);
+		LIST_FOREACH(we, &sched.wevs, chain)
+			_signal_cancel(we);
+		spin_unlock(&sched.wevs_lock);
+		if (atomic_read(&tc->refcnt) > 0) {
+			msg_exit(1, "tc_die(%s): refcnt = %d. Signals still enabled?\n",
+				 tc->name, atomic_read(&tc->refcnt));
+		}
+	}
 
 	atomic_set(&tc->state, EXITING); /* We will not get woken by sigs ;) */
 	add_event_cr(&e, 0, EF_EXITING, tc);  /* The scheduler will free me */
@@ -722,6 +739,10 @@ void tc_waitq_finish_wait(struct tc_waitq *wq, struct waitq_ev *we)
 		/* Do not care if that read fails. We can finish_wait even if the
 		   we where never woken up... */
 
+		spin_lock(&sched.wevs_lock);
+		LIST_REMOVE(we, chain);
+		spin_unlock(&sched.wevs_lock);
+
 		f = 1;
 		if (wq) {
 			spin_lock(&wq->lock);
@@ -758,12 +779,15 @@ void tc_waitq_wakeup(struct tc_waitq *wq)
 	struct waitq_ev *we = NULL;
 	eventfd_t c = 1;
 
+	spin_lock(&sched.wevs_lock);
 	spin_lock(&wq->lock);
 	if (wq->active) {
 		we = wq->active;
 		wq->active = NULL;
+		LIST_INSERT_HEAD(&sched.wevs, we, chain);
 	}
 	spin_unlock(&wq->lock);
+	spin_unlock(&sched.wevs_lock);
 
 	if (we) {
 		if (write(we->ev_fd, &c, sizeof(c)) != sizeof(c))
@@ -808,11 +832,35 @@ void _signal_gets_delivered(struct tc_fd *tcfd, struct event *e)
 	free(e);
 }
 
+
+enum tc_rv _signal_cancel(struct waitq_ev *we)
+{
+	struct event *e;
+	enum tc_rv rv;
+
+	spin_lock(&we->read_tcfd.lock);
+	LIST_FOREACH(e, &we->read_tcfd.events, chain) {
+		if (e->tc == tc_current()) {
+			rv = RV_OK;
+			remove_event(e);
+			free(e);
+			/* clear mask before arm ? */
+			arm(&we->read_tcfd);
+			goto found;
+		}
+	}
+	rv = RV_THREAD_NA;
+ found:
+	spin_unlock(&we->read_tcfd.lock);
+
+	return rv;
+}
+
+
 void tc_signal_disable(struct tc_signal *s)
 {
 	struct waitq_ev *we;
 	struct tc_waitq *wq = &s->wq;
-	struct event *e;
 
 	spin_lock(&wq->lock);
 	we = wq->active;
@@ -822,16 +870,7 @@ void tc_signal_disable(struct tc_signal *s)
 		return;
 	}
 
-	spin_lock(&we->read_tcfd.lock);
-	LIST_FOREACH(e, &we->read_tcfd.events, chain) {
-		if (e->tc == tc_current()) {
-			remove_event(e);
-			free(e);
-			arm(&we->read_tcfd);
-			break;
-		}
-	}
-	spin_unlock(&we->read_tcfd.lock);
+	_signal_cancel(we);
 	spin_unlock(&wq->lock);
 
 	tc_waitq_finish_wait(wq, we);
