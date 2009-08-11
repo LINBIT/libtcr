@@ -291,6 +291,8 @@ static void scheduler_part2()
 
 			if (atomic_swap(&tc->state, SIGNALLED) >= RUNNING)
 				continue;
+
+			worker.woken_by_tcfd = NULL; /* Do not expose the tcfd in case it was a signal. */
 		}
 
 		switch_to(tc);
@@ -378,8 +380,6 @@ void tc_rearm()
 		spin_lock(&worker.woken_by_tcfd->lock);
 		arm(worker.woken_by_tcfd);
 		spin_unlock(&worker.woken_by_tcfd->lock);
-	} else {
-		msg_exit(1, "worker.woken_by_tcfd is NULL in tc_rearm, tc_wait_fd called?\n");
 	}
 }
 
