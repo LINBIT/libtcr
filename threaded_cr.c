@@ -524,6 +524,7 @@ static void _tc_fd_init(struct tc_fd *tcfd, int fd)
 
 	tcfd->fd = fd;
 	LIST_INIT(&tcfd->events);
+	tcfd->ep_events = 0;
 
 	/* The fd has to be non blocking */
 	arg = fcntl(fd, F_GETFL, NULL);
