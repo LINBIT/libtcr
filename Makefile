@@ -4,10 +4,10 @@ LDFLAGS=-lpthread -g
 all: libtc.a tc_main tc_mutex_test1
 
 tc_main: main.o
-	$(CC) $(LDFLAGS) -L. -ltc -o $@ $^
+	$(CC) -o $@ $^ $(LDFLAGS) -L. -ltc 
 
 tc_mutex_test1: tc_mutex_test1.o
-	$(CC) $(LDFLAGS) -L. -ltc -o $@ $^
+	$(CC) -o $@ $^ $(LDFLAGS) -L. -ltc 
 
 clean:
 	rm -f *.o *.a
