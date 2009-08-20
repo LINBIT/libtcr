@@ -164,7 +164,7 @@ do {									\
 #define tc_waitq_wait_event(wq, cond)			\
 ({							\
 	enum tc_rv rv = RV_OK;				\
-	if (!cond)					\
+	if (!(cond))					\
 		__tc_wait_event(wq, cond, rv);		\
 	rv;						\
  })
