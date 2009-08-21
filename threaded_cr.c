@@ -20,6 +20,7 @@
 struct waitq_ev {
 	LIST_ENTRY(waitq_ev) chain;
 	atomic_t count;
+	atomic_t flying;
 	struct tc_fd read_tcfd;
 };
 
@@ -709,23 +710,31 @@ struct waitq_ev *tc_waitq_prepare_to_wait(struct tc_waitq *wq, struct event *e)
 		}
 	}
 	we = wq->active;
+	atomic_set(&we->flying, 0);
 	spin_unlock(&wq->lock);
 	atomic_inc(&we->count);
 
 	return we;
 }
 
-void _waitq_before_schedule(struct event *e, struct waitq_ev *we)
+void _waitq_before_schedule(struct tc_waitq *wq, struct event *e, struct waitq_ev *we)
 {
+	spin_lock(&wq->lock);
+	wq->active = we;
 	add_event_fd(e, EPOLLIN, EF_ALL, &we->read_tcfd);
+	spin_unlock(&wq->lock);
 }
 
 int _waitq_after_schedule(struct event *e, struct waitq_ev *we)
 {
 	int r = (worker.woken_by_event != e);
+	eventfd_t c;
 
 	if (r)
 		remove_event_fd(e, &we->read_tcfd);
+	else
+		read(we->read_tcfd.fd, &c, sizeof(c));
+
 	return r;
 }
 
@@ -735,9 +744,11 @@ void tc_waitq_finish_wait(struct tc_waitq *wq, struct waitq_ev *we)
 	eventfd_t c;
 
 	if (atomic_sub_return(1, &we->count) == 0) {
-		spin_lock(&sched.wevs_lock);
-		LIST_REMOVE(we, chain);
-		spin_unlock(&sched.wevs_lock);
+		if (atomic_read(&we->flying)) {
+			spin_lock(&sched.wevs_lock);
+			LIST_REMOVE(we, chain);
+			spin_unlock(&sched.wevs_lock);
+		}
 
 		f = 1;
 		if (wq) {
@@ -786,6 +797,7 @@ void tc_waitq_wakeup(struct tc_waitq *wq)
 		we = wq->active;
 		wq->active = NULL;
 		LIST_INSERT_HEAD(&sched.wevs, we, chain);
+		atomic_set(&we->flying, 1);
 	}
 	spin_unlock(&wq->lock);
 	spin_unlock(&sched.wevs_lock);

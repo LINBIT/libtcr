@@ -142,7 +142,7 @@ enum tc_rv tc_sleep(int clockid, time_t sec, long nsec);
 /* The following are intended to be used via the tc_waitq_wait_event(wq, condition) macro */
 struct waitq_ev *tc_waitq_prepare_to_wait(struct tc_waitq *wq, struct event *e);
 void tc_waitq_finish_wait(struct tc_waitq *wq, struct waitq_ev *we);
-void _waitq_before_schedule(struct event *e, struct waitq_ev *we);
+void _waitq_before_schedule(struct tc_waitq *wq, struct event *e, struct waitq_ev *we);
 int _waitq_after_schedule(struct event *e, struct waitq_ev *we);
 
 
@@ -154,7 +154,7 @@ do {									\
 	while (1) {							\
 		if (cond)						\
 			break;						\
-		_waitq_before_schedule(&e, we);				\
+		_waitq_before_schedule(wq, &e, we);			\
 		tc_scheduler();						\
 		if (_waitq_after_schedule(&e, we)) {			\
 			rv = RV_INTR;					\
