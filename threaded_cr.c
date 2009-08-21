@@ -668,10 +668,8 @@ enum tc_rv tc_thread_wait(struct tc_thread *wait_for)
 
 	tc_scheduler();
 
-	if (worker.woken_by_event != &e) {
-		remove_event_fd(&e, &we->read_tcfd);
+	if (_waitq_after_schedule(&e, we))
 		rv = RV_INTR;
-	}
 
 	/* Do not pass wait_for->exit_waiters, since wait_for might be already freed. */
 	tc_waitq_finish_wait(NULL, we);
@@ -773,8 +771,7 @@ void tc_waitq_wait(struct tc_waitq *wq) /* do not use! */
 	we = tc_waitq_prepare_to_wait(wq, &e);
 	add_event_fd(&e, EPOLLIN, EF_ALL, &we->read_tcfd);
 	tc_scheduler();
-	if (worker.woken_by_event != &e)
-		remove_event_fd(&e, &we->read_tcfd);
+	_waitq_after_schedule(&e, we);
 	tc_waitq_finish_wait(wq, we);
 }
 
