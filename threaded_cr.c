@@ -737,10 +737,6 @@ void tc_waitq_finish_wait(struct tc_waitq *wq, struct waitq_ev *we)
 	eventfd_t c;
 
 	if (atomic_sub_return(1, &we->count) == 0) {
-		read(we->read_tcfd.fd, &c, sizeof(c));
-		/* Do not care if that read fails. We can finish_wait even if the
-		   we where never woken up... */
-
 		spin_lock(&sched.wevs_lock);
 		LIST_REMOVE(we, chain);
 		spin_unlock(&sched.wevs_lock);
@@ -748,7 +744,13 @@ void tc_waitq_finish_wait(struct tc_waitq *wq, struct waitq_ev *we)
 		f = 1;
 		if (wq) {
 			spin_lock(&wq->lock);
+			if (wq->active == we)
+				wq->active = NULL;
+
 			if (!wq->spare) {
+				read(we->read_tcfd.fd, &c, sizeof(c));
+				/* Do not care if that read fails. We can finish_wait even if the
+				   we where never woken up... */
 				wq->spare = we;
 				f = 0;
 			}
