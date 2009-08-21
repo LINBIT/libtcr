@@ -890,3 +890,26 @@ void tc_signal_fire(struct tc_signal *s)
 	tc_waitq_wakeup(&s->wq);
 }
 
+enum tc_rv tc_sleep(int clockid, time_t sec, long nsec)
+{
+	struct itimerspec ts;
+	struct tc_fd tcfd;
+	enum tc_rv rv;
+	int fd;
+
+	ts.it_value.tv_sec = sec;
+	ts.it_value.tv_nsec = nsec;
+	ts.it_interval.tv_sec = 0;
+	ts.it_interval.tv_nsec = 0;
+
+	fd = timerfd_create(clockid, 0);
+	if (fd == -1)
+		msg_exit(1, "timerfd_create with %m\n");
+
+	_tc_fd_init(&tcfd, fd);
+	timerfd_settime(fd, 0, &ts, NULL);
+	rv = tc_wait_fd(EPOLLIN, &tcfd);
+	_tc_fd_unregister(&tcfd);
+	close(tcfd.fd);
+	return rv;
+}

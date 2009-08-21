@@ -4,6 +4,7 @@
 #include <sys/queue.h>
 #include <stddef.h>
 #include <pthread.h>
+#include <sys/timerfd.h>
 
 #include "atomic.h"
 #include "coroutines.h"
@@ -134,6 +135,9 @@ void tc_signal_unregister(struct tc_signal *s);
 void tc_waitq_init(struct tc_waitq *wq);
 void tc_waitq_wakeup(struct tc_waitq *wq);
 void tc_waitq_unregister(struct tc_waitq *wq);
+
+/* tc_sleep clockid = CLOCK_REALTIME or CLOCK_MONOTONIC */
+enum tc_rv tc_sleep(int clockid, time_t sec, long nsec);
 
 /* The following are intended to be used via the tc_waitq_wait_event(wq, condition) macro */
 struct waitq_ev *tc_waitq_prepare_to_wait(struct tc_waitq *wq, struct event *e);
