@@ -41,7 +41,6 @@ struct tc_fd {
 
 struct tc_mutex {
 	atomic_t count;
-	int ev_fd;
 	struct tc_fd read_tcfd;
 };
 
