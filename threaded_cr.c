@@ -476,6 +476,7 @@ struct tc_thread *tc_thread_new(void (*func)(void *), void *data, char* name)
 	atomic_set(&tc->refcnt, 0);
 	spin_lock_init(&tc->running);
 	atomic_set(&tc->state, SLEEPING);
+	tc->is_on_threads_chain = 0;
 
 	spin_lock(&sched.lock);
 	LIST_INSERT_HEAD(&sched.threads, tc, chain);
