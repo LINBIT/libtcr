@@ -503,17 +503,22 @@ void tc_threads_new(struct tc_threads *threads, void (*func)(void *), void *data
 	}
 }
 
-void tc_threads_wait(struct tc_threads *threads)
+enum tc_rv tc_threads_wait(struct tc_threads *threads)
 {
 	struct tc_thread *tc;
+	enum tc_rv rv;
 
 	spin_lock(&sched.lock);
 	while ((tc = LIST_FIRST(threads))) {
 		spin_unlock(&sched.lock);
-		tc_thread_wait(tc);
+		rv = tc_thread_wait(tc);
+		if (rv != RV_OK)
+			return rv;
 		spin_lock(&sched.lock);
 	}
 	spin_unlock(&sched.lock);
+
+	return RV_OK;
 }
 
 static void _tc_fd_init(struct tc_fd *tcfd, int fd)

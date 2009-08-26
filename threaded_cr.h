@@ -90,7 +90,7 @@ void tc_die();
    every worker.
  */
 void tc_threads_new(struct tc_threads *threads, void (*func)(void *), void *data, char* name);
-void tc_threads_wait(struct tc_threads *threads);
+enum tc_rv tc_threads_wait(struct tc_threads *threads);
 
 /* FDs
    Register each fd you want to wait on. if there are multiple concurrent
