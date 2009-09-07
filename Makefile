@@ -1,7 +1,7 @@
 CFLAGS=-Wall -g
 LDFLAGS=-lpthread -g
 
-all: libtc.a tc_main tc_mutex_test1 tc_waitq_test tc_waitq_test2
+all: libtc.a tc_main tc_mutex_test1 tc_waitq_test tc_waitq_test2 tc_waitq_test3
 
 tc_main: main.o
 	$(CC) -o $@ $^ $(LDFLAGS) -L. -ltc 
@@ -13,6 +13,9 @@ tc_waitq_test: tc_waitq_test.o
 	$(CC) -o $@ $^ $(LDFLAGS) -L. -ltc
 
 tc_waitq_test2: tc_waitq_test2.o
+	$(CC) -o $@ $^ $(LDFLAGS) -L. -ltc
+
+tc_waitq_test3: tc_waitq_test3.o
 	$(CC) -o $@ $^ $(LDFLAGS) -L. -ltc
 
 clean:

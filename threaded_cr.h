@@ -152,9 +152,13 @@ do {									\
 	struct event e;							\
 	we = tc_waitq_prepare_to_wait(wq, &e);				\
 	while (1) {							\
-		if (cond)						\
+		spin_lock(&(wq)->lock);					\
+		if (cond) {						\
+			spin_unlock(&(wq)->lock);			\
 			break;						\
+		}							\
 		_waitq_before_schedule(wq, &e, we);			\
+		spin_unlock(&(wq)->lock);				\
 		tc_scheduler();						\
 		if (_waitq_after_schedule(&e, we)) {			\
 			rv = RV_INTR;					\

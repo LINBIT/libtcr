@@ -19,7 +19,8 @@
 
 struct waitq_ev {
 	LIST_ENTRY(waitq_ev) chain;
-	atomic_t count;
+	atomic_t waiters;   /* Number of tc_threads between prepare_to_wait() and finish_wait() */
+	atomic_t sleepers;  /* Number of tc_threads between before_schedule() and after_schedule() */
 	atomic_t flying;
 	struct tc_fd read_tcfd;
 };
@@ -278,11 +279,8 @@ static void scheduler_part2()
 		tcfd->ep_events = -1; /* recalc them */
 
 		e = matching_event(worker.epe.events, &tcfd->events);
-		if (!e) {
-			arm(tcfd);
-			spin_unlock(&tcfd->lock);
-			continue;
-		}
+		if (!e)
+			msg_exit(1, "No matching event found!\n");
 
 		tc = e->tc;
 		remove_event(e);
@@ -706,24 +704,24 @@ struct waitq_ev *tc_waitq_prepare_to_wait(struct tc_waitq *wq, struct event *e)
 				msg_exit(1, "eventfd() failed with: %m\n");
 
 			_tc_fd_init(&we->read_tcfd, ev_fd);
-			atomic_set(&we->count, 0);
+			atomic_set(&we->waiters, 0);
+			atomic_set(&we->sleepers, 0);
 			wq->active = we;
 		}
 	}
 	we = wq->active;
 	atomic_set(&we->flying, 0);
 	spin_unlock(&wq->lock);
-	atomic_inc(&we->count);
+	atomic_inc(&we->waiters);
 
 	return we;
 }
 
 void _waitq_before_schedule(struct tc_waitq *wq, struct event *e, struct waitq_ev *we)
 {
-	spin_lock(&wq->lock);
 	wq->active = we;
 	add_event_fd(e, EPOLLIN, EF_ALL, &we->read_tcfd);
-	spin_unlock(&wq->lock);
+	atomic_inc(&we->sleepers);
 }
 
 int _waitq_after_schedule(struct event *e, struct waitq_ev *we)
@@ -733,7 +731,8 @@ int _waitq_after_schedule(struct event *e, struct waitq_ev *we)
 
 	if (r)
 		remove_event_fd(e, &we->read_tcfd);
-	else
+
+	if (atomic_sub_return(1, &we->sleepers) == 0)
 		read(we->read_tcfd.fd, &c, sizeof(c));
 
 	return r;
@@ -744,7 +743,7 @@ void tc_waitq_finish_wait(struct tc_waitq *wq, struct waitq_ev *we)
 	int f;
 	eventfd_t c;
 
-	if (atomic_sub_return(1, &we->count) == 0) {
+	if (atomic_sub_return(1, &we->waiters) == 0) {
 		if (atomic_read(&we->flying)) {
 			spin_lock(&sched.wevs_lock);
 			LIST_REMOVE(we, chain);
