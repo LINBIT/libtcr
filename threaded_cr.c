@@ -279,8 +279,14 @@ static void scheduler_part2()
 		tcfd->ep_events = -1; /* recalc them */
 
 		e = matching_event(worker.epe.events, &tcfd->events);
-		if (!e)
-			msg_exit(1, "No matching event found!\n");
+		if (!e) {
+			arm(tcfd);
+			spin_unlock(&tcfd->lock);
+			continue;
+			/* That can happen if someone wakes up an waitq when the waiter
+			   is between prepare_to_wait() and before_schedule() or between
+			   after_schedule() and finish_wait. */
+		}
 
 		tc = e->tc;
 		remove_event(e);
@@ -665,7 +671,7 @@ enum tc_rv tc_thread_wait(struct tc_thread *wait_for)
 	rv = _thread_valid(wait_for);  /* wait_for might have already exited */
 	if (rv == RV_OK) {
 		we = tc_waitq_prepare_to_wait(&wait_for->exit_waiters, &e);
-		add_event_fd(&e, EPOLLIN, EF_ALL, &we->read_tcfd);
+		_waitq_before_schedule(&wait_for->exit_waiters, &e, we);
 	}
 	spin_unlock(&sched.lock);
 	if (rv == RV_THREAD_NA)
@@ -785,7 +791,7 @@ void tc_waitq_wait(struct tc_waitq *wq) /* do not use! */
 	struct event e;
 
 	we = tc_waitq_prepare_to_wait(wq, &e);
-	add_event_fd(&e, EPOLLIN, EF_ALL, &we->read_tcfd);
+	_waitq_before_schedule(wq, &e, we);
 	tc_scheduler();
 	_waitq_after_schedule(&e, we);
 	tc_waitq_finish_wait(wq, we);
@@ -798,7 +804,7 @@ void tc_waitq_wakeup(struct tc_waitq *wq)
 
 	spin_lock(&sched.wevs_lock);
 	spin_lock(&wq->lock);
-	if (wq->active) {
+	if (wq->active && atomic_read(&wq->active->sleepers)) {
 		we = wq->active;
 		wq->active = NULL;
 		LIST_INSERT_HEAD(&sched.wevs, we, chain);
