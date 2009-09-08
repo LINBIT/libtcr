@@ -19,8 +19,7 @@
 
 struct waitq_ev {
 	LIST_ENTRY(waitq_ev) chain;
-	atomic_t waiters;   /* Number of tc_threads between prepare_to_wait() and finish_wait() */
-	atomic_t sleepers;  /* Number of tc_threads between before_schedule() and after_schedule() */
+	atomic_t waiters;   /* Number of tc_threads sleeping on the wq */
 	atomic_t flying;
 	struct tc_fd read_tcfd;
 };
@@ -74,8 +73,10 @@ static struct scheduler sched;
 static struct tc_thread *tc_main;
 static __thread struct worker_struct worker;
 
-void _signal_gets_delivered(struct tc_fd *tcfd, struct event *e);
-enum tc_rv _signal_cancel(struct waitq_ev *we);
+static void _signal_gets_delivered(struct tc_fd *tcfd, struct event *e);
+static enum tc_rv _signal_cancel(struct waitq_ev *we);
+static struct waitq_ev *tc_waitq_prepare_to_wait(struct tc_waitq *wq, struct event *e);
+static void _tc_waitq_finish_wait(struct tc_waitq *wq, struct waitq_ev *we);
 
 static inline struct tc_thread *tc_current()
 {
@@ -669,21 +670,18 @@ enum tc_rv tc_thread_wait(struct tc_thread *wait_for)
 
 	spin_lock(&sched.lock);
 	rv = _thread_valid(wait_for);  /* wait_for might have already exited */
-	if (rv == RV_OK) {
+	if (rv == RV_OK)
 		we = tc_waitq_prepare_to_wait(&wait_for->exit_waiters, &e);
-		_waitq_before_schedule(&wait_for->exit_waiters, &e, we);
-	}
+
 	spin_unlock(&sched.lock);
 	if (rv == RV_THREAD_NA)
 		return rv;
 
 	tc_scheduler();
 
-	if (_waitq_after_schedule(&e, we))
-		rv = RV_INTR;
-
 	/* Do not pass wait_for->exit_waiters, since wait_for might be already freed. */
-	tc_waitq_finish_wait(NULL, we);
+	if (tc_waitq_finish_wait(NULL, &e, we))
+		rv = RV_INTR;
 
 	return rv;
 }
@@ -695,12 +693,12 @@ void tc_waitq_init(struct tc_waitq *wq)
 	wq->spare = NULL;
 }
 
-struct waitq_ev *tc_waitq_prepare_to_wait(struct tc_waitq *wq, struct event *e)
+/* must_hold wq->lock, must call add_event_fd() */
+struct waitq_ev *__tc_waitq_prepare_to_wait(struct tc_waitq *wq)
 {
 	struct waitq_ev *we;
 	int ev_fd;
 
-	spin_lock(&wq->lock);
 	if (!wq->active) {
 		if (wq->spare) {
 			wq->active = wq->spare;
@@ -716,40 +714,52 @@ struct waitq_ev *tc_waitq_prepare_to_wait(struct tc_waitq *wq, struct event *e)
 
 			_tc_fd_init(&we->read_tcfd, ev_fd);
 			atomic_set(&we->waiters, 0);
-			atomic_set(&we->sleepers, 0);
 			wq->active = we;
 		}
 	}
 	we = wq->active;
 	atomic_set(&we->flying, 0);
-	spin_unlock(&wq->lock);
 	atomic_inc(&we->waiters);
 
 	return we;
 }
 
-void _waitq_before_schedule(struct tc_waitq *wq, struct event *e, struct waitq_ev *we)
+/* must_hold wq->lock */
+struct waitq_ev *_tc_waitq_prepare_to_wait(struct tc_waitq *wq, struct event *e)
 {
-	wq->active = we;
+	struct waitq_ev *we;
+
+	we = __tc_waitq_prepare_to_wait(wq);
 	add_event_fd(e, EPOLLIN, EF_ALL, &we->read_tcfd);
-	atomic_inc(&we->sleepers);
+
+	return we;
 }
 
-int _waitq_after_schedule(struct event *e, struct waitq_ev *we)
+static struct waitq_ev *tc_waitq_prepare_to_wait(struct tc_waitq *wq, struct event *e)
+{
+	struct waitq_ev *we;
+
+	spin_lock(&wq->lock);
+	we = _tc_waitq_prepare_to_wait(wq, e);
+	spin_unlock(&wq->lock);
+
+	return we;
+}
+
+
+int tc_waitq_finish_wait(struct tc_waitq *wq, struct event *e, struct waitq_ev *we)
 {
 	int r = (worker.woken_by_event != e);
-	eventfd_t c;
 
 	if (r)
 		remove_event_fd(e, &we->read_tcfd);
 
-	if (atomic_sub_return(1, &we->sleepers) == 0)
-		read(we->read_tcfd.fd, &c, sizeof(c));
+	_tc_waitq_finish_wait(wq, we);
 
 	return r;
 }
 
-void tc_waitq_finish_wait(struct tc_waitq *wq, struct waitq_ev *we)
+static void _tc_waitq_finish_wait(struct tc_waitq *wq, struct waitq_ev *we)
 {
 	int f;
 	eventfd_t c;
@@ -791,10 +801,8 @@ void tc_waitq_wait(struct tc_waitq *wq) /* do not use! */
 	struct event e;
 
 	we = tc_waitq_prepare_to_wait(wq, &e);
-	_waitq_before_schedule(wq, &e, we);
 	tc_scheduler();
-	_waitq_after_schedule(&e, we);
-	tc_waitq_finish_wait(wq, we);
+	tc_waitq_finish_wait(wq, &e, we);
 }
 
 void tc_waitq_wakeup(struct tc_waitq *wq)
@@ -804,7 +812,7 @@ void tc_waitq_wakeup(struct tc_waitq *wq)
 
 	spin_lock(&sched.wevs_lock);
 	spin_lock(&wq->lock);
-	if (wq->active && atomic_read(&wq->active->sleepers)) {
+	if (wq->active && atomic_read(&wq->active->waiters)) {
 		we = wq->active;
 		wq->active = NULL;
 		LIST_INSERT_HEAD(&sched.wevs, we, chain);
@@ -840,8 +848,10 @@ void tc_signal_enable(struct tc_signal *s)
 
 	/* printf(" (%d) signal_enabled e=%p for %s\n", worker.nr, e, tc_current()->name); */
 
-	we = tc_waitq_prepare_to_wait(&s->wq, e);
+	spin_lock(&s->wq.lock);
+	we = __tc_waitq_prepare_to_wait(&s->wq);
 	add_event_fd(e, EPOLLIN, EF_ALL_FREE, &we->read_tcfd);
+	spin_unlock(&s->wq.lock);
 }
 
 void _signal_gets_delivered(struct tc_fd *tcfd, struct event *e)
@@ -852,7 +862,7 @@ void _signal_gets_delivered(struct tc_fd *tcfd, struct event *e)
 
 	we = container_of(tcfd, struct waitq_ev, read_tcfd);
 
-	tc_waitq_finish_wait(NULL, we);
+	_tc_waitq_finish_wait(NULL, we);
 	free(e);
 }
 
@@ -897,7 +907,7 @@ void tc_signal_disable(struct tc_signal *s)
 	_signal_cancel(we);
 	spin_unlock(&wq->lock);
 
-	tc_waitq_finish_wait(wq, we);
+	_tc_waitq_finish_wait(wq, we);
 }
 
 void tc_signal_unregister(struct tc_signal *s)

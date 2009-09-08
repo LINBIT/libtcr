@@ -140,32 +140,27 @@ void tc_waitq_unregister(struct tc_waitq *wq);
 enum tc_rv tc_sleep(int clockid, time_t sec, long nsec);
 
 /* The following are intended to be used via the tc_waitq_wait_event(wq, condition) macro */
-struct waitq_ev *tc_waitq_prepare_to_wait(struct tc_waitq *wq, struct event *e);
-void tc_waitq_finish_wait(struct tc_waitq *wq, struct waitq_ev *we);
-void _waitq_before_schedule(struct tc_waitq *wq, struct event *e, struct waitq_ev *we);
-int _waitq_after_schedule(struct event *e, struct waitq_ev *we);
-
+struct waitq_ev *_tc_waitq_prepare_to_wait(struct tc_waitq *wq, struct event *e);
+int tc_waitq_finish_wait(struct tc_waitq *wq, struct event *e, struct waitq_ev *we);
 
 #define __tc_wait_event(wq, cond, rv)					\
 do {									\
 	struct waitq_ev *we;						\
 	struct event e;							\
-	we = tc_waitq_prepare_to_wait(wq, &e);				\
 	while (1) {							\
 		spin_lock(&(wq)->lock);					\
 		if (cond) {						\
 			spin_unlock(&(wq)->lock);			\
 			break;						\
 		}							\
-		_waitq_before_schedule(wq, &e, we);			\
+		we = _tc_waitq_prepare_to_wait(wq, &e);			\
 		spin_unlock(&(wq)->lock);				\
 		tc_scheduler();						\
-		if (_waitq_after_schedule(&e, we)) {			\
+		if (tc_waitq_finish_wait(wq, &e, we)) {			\
 			rv = RV_INTR;					\
 			break;						\
 		}							\
 	}								\
-	tc_waitq_finish_wait(wq, we);					\
 } while (0)
 
 #define tc_waitq_wait_event(wq, cond)			\

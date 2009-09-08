@@ -68,11 +68,6 @@ int do_write_packets(void)
 
 }
 
-int have_something_to_send(void)
-{
-	return 1;
-}
-
 void drbd_connection_writer(void *unused)
 {
 	int ret;
