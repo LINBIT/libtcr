@@ -754,6 +754,10 @@ int tc_waitq_finish_wait(struct tc_waitq *wq, struct event *e, struct waitq_ev *
 	if (r)
 		remove_event_fd(e, &we->read_tcfd);
 
+	/* Do not expose wakening event/tcfd, user should not tc_rearm() on them */
+	worker.woken_by_event = NULL;
+	worker.woken_by_tcfd  = NULL;
+
 	_tc_waitq_finish_wait(wq, we);
 
 	return r;
