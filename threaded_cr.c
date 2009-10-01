@@ -281,12 +281,10 @@ static void scheduler_part2()
 
 		e = matching_event(worker.epe.events, &tcfd->events);
 		if (!e) {
-			arm(tcfd);
+			/* That can happen if the event_fd of a signal wakes us up just
+			   after _signal_cancel was called */
 			spin_unlock(&tcfd->lock);
 			continue;
-			/* That can happen if someone wakes up an waitq when the waiter
-			   is between prepare_to_wait() and before_schedule() or between
-			   after_schedule() and finish_wait. */
 		}
 
 		tc = e->tc;
