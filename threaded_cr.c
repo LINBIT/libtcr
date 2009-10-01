@@ -12,6 +12,7 @@
 #include <assert.h>
 
 #include "atomic.h"
+#include "spinlock.h"
 #include "coroutines.h"
 #include "threaded_cr.h"
 
@@ -34,9 +35,9 @@ enum thread_state {
 };
 
 struct tc_thread {
+	char *name;		/* Leafe that first, for debugging spinlocks */
 	LIST_ENTRY(tc_thread) chain;         /* list of all threads*/
 	LIST_ENTRY(tc_thread) threads_chain; /* list of thrads created with one call to tc_threads_new() */
-	char *name;
 	struct coroutine *cr;
 	struct tc_waitq exit_waiters;
 	atomic_t refcnt;
@@ -83,8 +84,8 @@ static inline struct tc_thread *tc_current()
 	return (struct tc_thread *)cr_uptr(cr_current());
 }
 
-static inline void msg_exit(int code, const char *fmt, ...) __attribute__ ((__noreturn__));
-static inline void msg_exit(int code, const char *fmt, ...)
+void msg_exit(int code, const char *fmt, ...) __attribute__ ((__noreturn__));
+void msg_exit(int code, const char *fmt, ...)
 {
 	va_list ap;
 

@@ -7,6 +7,7 @@
 #include <sys/timerfd.h>
 
 #include "atomic.h"
+#include "spinlock.h"
 #include "coroutines.h"
 
 enum tc_event_flag {

@@ -1,5 +1,5 @@
-CFLAGS=-Wall -g
-LDFLAGS=-lpthread -g
+CFLAGS +=-Wall -g
+LDFLAGS +=-lpthread -g
 
 all: libtc.a tc_main tc_mutex_test1 tc_waitq_test tc_waitq_test2 tc_waitq_test3 tc_waitq_test5
 
@@ -27,3 +27,6 @@ clean:
 libtc.a: threaded_cr.o coroutines.o
 	ar rcs $@ $^
 
+
+threaded_cr.o: atomic.h coroutines.h spinlock.h spinlock_plain.h spinlock_debug.h
+coroutines.o: coroutines.h
