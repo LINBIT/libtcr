@@ -208,6 +208,13 @@ static void switch_to(struct tc_thread *new)
 	/* If it was sleeping it is running now. If it was signalled it stays signalled */
 	atomic_set_if_eq(RUNNING, SLEEPING, &new->state);
 
+	if (atomic_read(&new->state) == EXITING) {
+		/* With some bad timing it can happen that a signal gets already
+		   delivered while a thread decides to exit. */
+		spin_unlock(&new->running);
+		return;
+	}
+
 	cr_call(new->cr);
 
 	previous = (struct tc_thread *)cr_uptr(cr_caller());
@@ -440,7 +447,7 @@ void tc_die()
 	add_event_cr(&e, 0, EF_EXITING, tc);  /* The scheduler will free me */
 	tc_scheduler();
 	/* Not reached. */
-	msg_exit(1, "tc_scheduler() returned in tc_die()\n");
+	msg_exit(1, "tc_scheduler() returned in tc_die() [state = %d]\n", atomic_read(&tc->state));
 }
 
 void tc_setup(void *data)
