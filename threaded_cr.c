@@ -777,9 +777,6 @@ static void _tc_waitq_finish_wait(struct tc_waitq *wq, struct waitq_ev *we)
 		f = 1;
 		if (wq) {
 			spin_lock(&wq->lock);
-			if (wq->active == we)
-				wq->active = NULL;
-
 			if (!wq->spare) {
 				read(we->read_tcfd.fd, &c, sizeof(c));
 				/* Do not care if that read fails. We can finish_wait even if the
@@ -907,10 +904,9 @@ void tc_signal_disable(struct tc_signal *s)
 		return;
 	}
 
-	_signal_cancel(we);
+	if (_signal_cancel(we) == RV_OK)
+		atomic_dec(&we->waiters); /* Might leaves a we with waiters == 0 in wq->active */
 	spin_unlock(&wq->lock);
-
-	_tc_waitq_finish_wait(wq, we);
 }
 
 void tc_signal_unregister(struct tc_signal *s)
