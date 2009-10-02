@@ -1,7 +1,17 @@
 #define _GNU_SOURCE /* for asprintf() */
 
+#include "config.h"
+
 #include <sys/epoll.h>
+#ifdef HAVE_SYS_EVENTFD_H
 #include <sys/eventfd.h>
+#else
+#include <stdint.h>
+typedef uint64_t eventfd_t;
+extern int eventfd (int __count, int __flags);
+extern int eventfd_read (int __fd, eventfd_t *__value);
+extern int eventfd_write (int __fd, eventfd_t value);
+#endif
 #include <unistd.h>
 #include <fcntl.h>
 #include <pthread.h>
