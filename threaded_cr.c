@@ -28,6 +28,32 @@ extern int eventfd_write (int __fd, eventfd_t value);
 
 #define DEFAULT_STACK_SIZE (1024 * 16)
 
+#ifndef HAVE_TIMERFD_CREATE
+#include <sys/syscall.h>
+int timerfd_create (clockid_t __clock_id, int __flags)
+{
+	return syscall(SYS_timerfd_create, __clock_id, __flags);
+}
+#endif
+
+#ifndef HAVE_TIMERFD_SETTIME
+#include <sys/syscall.h>
+extern int timerfd_settime (int __ufd, int __flags,
+                            __const struct itimerspec *__utmr,
+                            struct itimerspec *__otmr)
+{
+	return syscall(SYS_timerfd_settime, __ufd, __flags, __utmr, __otmr);
+}
+#endif
+
+#ifndef HAVE_TIMERFD_GETTIME
+#include <sys/syscall.h>
+extern int timerfd_gettime (int __ufd, struct itimerspec *__otmr)
+{
+	return syscall(SYS_timerfd_gettime, __ufd, __otmr);
+}
+#endif
+
 struct waitq_ev {
 	LIST_ENTRY(waitq_ev) chain;
 	atomic_t waiters;   /* Number of tc_threads sleeping on the wq */

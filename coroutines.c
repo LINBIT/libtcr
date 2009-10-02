@@ -1,3 +1,4 @@
+#include "config.h"
 #include <sys/mman.h>
 #include <pthread.h>
 #include <ucontext.h>
@@ -7,6 +8,10 @@
 #include <stdio.h>
 
 #include "coroutines.h"
+
+#ifndef HAVE_MAP_STACK
+#define MAP_STACK       0x20000
+#endif
 
 #define STACK_ALIGN 16
 
