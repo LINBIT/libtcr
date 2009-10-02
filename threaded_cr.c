@@ -223,7 +223,6 @@ static void switch_to(struct tc_thread *new)
 
 void tc_scheduler(void)
 {
-	struct tc_thread *tc;
 	struct event *e;
 
 	if (atomic_set_if_eq(RUNNING, SIGNALLED, &tc_current()->state)) {
@@ -240,15 +239,15 @@ void tc_scheduler(void)
 		worker.woken_by_tcfd  = NULL;
 		if (e->tc != tc_current()) {
 			remove_event(e);
+			spin_unlock(&sched.lock);
 			switch (e->flags) {
 			case EF_READY:
-				spin_unlock(&sched.lock);
 				switch_to(e->tc);
 				return;
 			case EF_EXITING:
-				tc = e->tc;
-				e = LIST_NEXT(e, chain); /* e was within the stack frame */
-				tc_thread_free(tc);      /* that gets released here */
+				tc_thread_free(e->tc);
+				spin_lock(&sched.lock);
+				e = LIST_FIRST(&sched.immediate);
 				continue;
 			default:
 				msg_exit(1, "Wrong e->flags in immediate list\n");
