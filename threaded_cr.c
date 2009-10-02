@@ -756,6 +756,13 @@ int tc_waitq_finish_wait(struct tc_waitq *wq, struct event *e, struct waitq_ev *
 	return r;
 }
 
+static void tc_waitq_free_wait_ev(struct waitq_ev *we)
+{
+	_tc_fd_unregister(&we->read_tcfd);
+	close(we->read_tcfd.fd);
+	free(we);
+}
+
 static void _tc_waitq_finish_wait(struct tc_waitq *wq, struct waitq_ev *we)
 {
 	int f;
@@ -781,11 +788,8 @@ static void _tc_waitq_finish_wait(struct tc_waitq *wq, struct waitq_ev *we)
 			spin_unlock(&wq->lock);
 		}
 
-		if (f) {
-			_tc_fd_unregister(&we->read_tcfd);
-			close(we->read_tcfd.fd);
-			free(we);
-		}
+		if (f)
+			tc_waitq_free_wait_ev(we);
 	}
 }
 
@@ -823,7 +827,17 @@ void tc_waitq_wakeup(struct tc_waitq *wq)
 
 void tc_waitq_unregister(struct tc_waitq *wq)
 {
-	/* Nothing to do. */
+	struct waitq_ev *we;
+
+	spin_lock(&wq->lock);
+	we = wq->active;
+	if (we) {
+		if (atomic_read(&we->waiters))
+			msg_exit(1, "there are still waiters in tc_waitq_unregister()");
+		wq->active = NULL;
+		tc_waitq_free_wait_ev(we);
+	}
+	spin_unlock(&wq->lock);
 }
 
 void tc_signal_init(struct tc_signal *s)
