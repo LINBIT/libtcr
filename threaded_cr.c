@@ -225,6 +225,9 @@ void tc_scheduler(void)
 {
 	struct event *e;
 
+	if (atomic_read(&tc_current()->state) == EXITING) /* avoid deadlocks! */
+		switch_to(&worker.sched_p2);
+
 	if (atomic_set_if_eq(RUNNING, SIGNALLED, &tc_current()->state)) {
 		worker.woken_by_event = NULL; /* compares != to any real address */
 		worker.woken_by_tcfd  = NULL;
