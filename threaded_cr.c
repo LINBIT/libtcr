@@ -689,7 +689,6 @@ void tc_waitq_init(struct tc_waitq *wq)
 {
 	spin_lock_init(&wq->lock);
 	wq->active = NULL;
-	wq->spare = NULL;
 }
 
 /* must_hold wq->lock, must call add_event_fd() */
@@ -699,22 +698,17 @@ struct waitq_ev *__tc_waitq_prepare_to_wait(struct tc_waitq *wq)
 	int ev_fd;
 
 	if (!wq->active) {
-		if (wq->spare) {
-			wq->active = wq->spare;
-			wq->spare = NULL;
-		} else {
-			we = malloc(sizeof(struct waitq_ev));
-			if (!we)
-				msg_exit(1, "malloc of waitq_ev failed in tc_waitq_init\n");
+		we = malloc(sizeof(struct waitq_ev));
+		if (!we)
+			msg_exit(1, "malloc of waitq_ev failed in tc_waitq_init\n");
 
-			ev_fd = eventfd(0, 0);
-			if (ev_fd == -1)
-				msg_exit(1, "eventfd() failed with: %m\n");
+		ev_fd = eventfd(0, 0);
+		if (ev_fd == -1)
+			msg_exit(1, "eventfd() failed with: %m\n");
 
-			_tc_fd_init(&we->read_tcfd, ev_fd);
-			atomic_set(&we->waiters, 0);
-			wq->active = we;
-		}
+		_tc_fd_init(&we->read_tcfd, ev_fd);
+		atomic_set(&we->waiters, 0);
+		wq->active = we;
 	}
 	we = wq->active;
 	atomic_set(&we->flying, 0);
@@ -777,11 +771,11 @@ static void _tc_waitq_finish_wait(struct tc_waitq *wq, struct waitq_ev *we)
 		f = 1;
 		if (wq) {
 			spin_lock(&wq->lock);
-			if (!wq->spare) {
+			if (!wq->active) {
 				read(we->read_tcfd.fd, &c, sizeof(c));
 				/* Do not care if that read fails. We can finish_wait even if the
 				   we where never woken up... */
-				wq->spare = we;
+				wq->active = we;
 				f = 0;
 			}
 			spin_unlock(&wq->lock);

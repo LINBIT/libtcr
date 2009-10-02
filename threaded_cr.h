@@ -52,7 +52,6 @@ LIST_HEAD(wait_evs, waitq_ev);
 
 struct tc_waitq {
 	struct waitq_ev *active;
-	struct waitq_ev *spare;
 	spinlock_t lock;
 };
 
