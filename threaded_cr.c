@@ -897,6 +897,7 @@ enum tc_rv _signal_cancel(struct waitq_ev *we)
 			free(e);
 			/* clear mask before arm ? */
 			arm(&we->read_tcfd);
+			atomic_dec(&we->waiters); /* Might leaves a we with waiters == 0 in wq->active */
 			goto found;
 		}
 	}
@@ -921,8 +922,7 @@ void tc_signal_disable(struct tc_signal *s)
 		return;
 	}
 
-	if (_signal_cancel(we) == RV_OK)
-		atomic_dec(&we->waiters); /* Might leaves a we with waiters == 0 in wq->active */
+	_signal_cancel(we);
 	spin_unlock(&wq->lock);
 }
 
