@@ -57,7 +57,6 @@ struct worker_struct {
 	struct tc_thread sched_p2;
 	struct event *woken_by_event; /* always set after tc_scheduler()   */
 	struct tc_fd *woken_by_tcfd;  /* might be set after tc_scheduler() */
-	struct epoll_event epe;
 };
 
 struct scheduler {
@@ -265,6 +264,7 @@ void tc_scheduler(void)
 
 static void scheduler_part2()
 {
+	struct epoll_event epe;
 	struct tc_fd *tcfd;
 	struct event *e;
 	struct tc_thread *tc;
@@ -279,17 +279,17 @@ static void scheduler_part2()
 
 	while(1) {
 		do {
-			er = epoll_wait(sched.efd, &worker.epe, 1, -1);
+			er = epoll_wait(sched.efd, &epe, 1, -1);
 		} while (er < 0 && errno == EINTR);
 		if (er < 0)
 			msg_exit(1, "epoll_wait() failed with: %m\n");
 
-		tcfd = (struct tc_fd *)worker.epe.data.ptr;
+		tcfd = (struct tc_fd *)epe.data.ptr;
 
 		spin_lock(&tcfd->lock);
 		tcfd->ep_events = -1; /* recalc them */
 
-		e = matching_event(worker.epe.events, &tcfd->events);
+		e = matching_event(epe.events, &tcfd->events);
 		if (!e) {
 			/* That can happen if the event_fd of a signal wakes us up just
 			   after _signal_cancel was called */
