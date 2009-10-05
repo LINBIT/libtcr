@@ -1,28 +1,17 @@
 CFLAGS +=-Wall -g -DDEBUG
 LDFLAGS +=-lpthread -g
+export CFLAGS LDFLAGS
 
-all: libtc.a tc_main tc_mutex_test1 tc_waitq_test tc_waitq_test2 tc_waitq_test3 tc_waitq_test5
+.PHONY: tests clean
 
-tc_main: main.o
-	$(CC) -o $@ $^ $(LDFLAGS) -L. -ltc
+all: libtc.a tests
 
-tc_mutex_test1: tc_mutex_test1.o
-	$(CC) -o $@ $^ $(LDFLAGS) -L. -ltc
-
-tc_waitq_test: tc_waitq_test.o
-	$(CC) -o $@ $^ $(LDFLAGS) -L. -ltc
-
-tc_waitq_test2: tc_waitq_test2.o
-	$(CC) -o $@ $^ $(LDFLAGS) -L. -ltc
-
-tc_waitq_test3: tc_waitq_test3.o
-	$(CC) -o $@ $^ $(LDFLAGS) -L. -ltc
-
-tc_waitq_test5: tc_waitq_test5.o
-	$(CC) -o $@ $^ $(LDFLAGS) -L. -ltc
+tests:
+	$(MAKE) -r -C tests
 
 clean:
 	rm -f *.o *.a
+	$(MAKE) -r -C tests clean
 
 libtc.a: threaded_cr.o coroutines.o
 	ar rcs $@ $^
