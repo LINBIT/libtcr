@@ -66,7 +66,11 @@ struct scheduler {
 	struct waitq_evs wevs;     /* List of 'flying' signals and waitq wakeup events */
 	spinlock_t wevs_lock;      /* protects the wevs list */
 	int nr_of_workers;
-	int efd;
+	int efd;                   /* epoll fd */
+	int sync_fd;               /* event fd to synchronize all workers */
+	atomic_t sync_cnt;
+	pthread_barrier_t *sync_b;
+	spinlock_t sync_lock;
 };
 
 static struct scheduler sched;
@@ -77,7 +81,10 @@ static void _signal_gets_delivered(struct tc_fd *tcfd, struct event *e);
 static enum tc_rv _signal_cancel(struct waitq_ev *we);
 static struct waitq_ev *tc_waitq_prepare_to_wait(struct tc_waitq *wq, struct event *e);
 static void _tc_waitq_finish_wait(struct tc_waitq *wq, struct waitq_ev *we);
-static void tc_waitq_free_wait_ev(struct waitq_ev *we);
+static void tc_waitq_free_wait_ev(struct waitq_ev *we, int sync);
+static void _synchronize_world();
+static void synchronize_world();
+static void _tc_waitq_unregister(struct tc_waitq *wq, int sync);
 
 static inline struct tc_thread *tc_current()
 {
@@ -183,7 +190,7 @@ void remove_event_fd(struct event *e, struct tc_fd *tcfd)
 void tc_thread_free(struct tc_thread *tc)
 {
 	spin_lock(&tc->running); /* Make sure it has reached switch_to(), after posting EF_EXITING */
-	tc_waitq_unregister(&tc->exit_waiters);
+	_tc_waitq_unregister(&tc->exit_waiters, 0);
 	cr_delete(tc->cr);
 	free(tc);
 }
@@ -287,6 +294,11 @@ static void scheduler_part2()
 
 		tcfd = (struct tc_fd *)epe.data.ptr;
 
+		if (!tcfd) {
+			_synchronize_world();
+			continue;
+		}
+
 		spin_lock(&tcfd->lock);
 		tcfd->ep_events = -1; /* recalc them */
 
@@ -348,15 +360,30 @@ void tc_worker_init(int i)
 
 void tc_init()
 {
+	struct epoll_event epe;
+
 	LIST_INIT(&sched.immediate);
 	LIST_INIT(&sched.threads);
 	LIST_INIT(&sched.wevs);
 	spin_lock_init(&sched.lock);
 	spin_lock_init(&sched.wevs_lock);
 
+	spin_lock_init(&sched.sync_lock);
+	atomic_set(&sched.sync_cnt, 0);
+	sched.sync_b = NULL;
+	sched.sync_fd = eventfd(0, 0);
+	if (sched.sync_fd == -1)
+		msg_exit(1, "eventfd() failed with: %m\n");
+
 	sched.efd = epoll_create(1);
 	if (sched.efd < 0)
 		msg_exit(1, "epoll_create failed with %m\n");
+
+	epe.data.ptr = NULL;
+	epe.events = EPOLLIN;
+
+	if (epoll_ctl(sched.efd, EPOLL_CTL_ADD, sched.sync_fd, &epe))
+		msg_exit(1, "epoll_ctl failed with %m\n");
 }
 
 static void *worker_pthread(void *arg)
@@ -442,7 +469,7 @@ void tc_die()
 				if (atomic_sub_return(1, &we->waiters) == 0) {
 					LIST_REMOVE(we, chain);
 					atomic_set(&we->flying, 0);
-					tc_waitq_free_wait_ev(we);
+					tc_waitq_free_wait_ev(we, 1);
 				}
 			}
 		}
@@ -585,7 +612,7 @@ struct tc_fd *tc_register_fd(int fd)
 	return tcfd;
 }
 
-static void _tc_fd_unregister(struct tc_fd *tcfd)
+static void _tc_fd_unregister(struct tc_fd *tcfd, int sync)
 {
 	struct epoll_event epe = { };
 
@@ -596,12 +623,57 @@ static void _tc_fd_unregister(struct tc_fd *tcfd)
 
 	if (epoll_ctl(sched.efd, EPOLL_CTL_DEL, tcfd->fd, &epe))
 		msg_exit(1, "epoll_ctl failed with %m\n");
+
+	if (sync)
+		synchronize_world();
 }
 
 void tc_unregister_fd(struct tc_fd *tcfd)
 {
-	_tc_fd_unregister(tcfd);
+	_tc_fd_unregister(tcfd, 1);
 	free(tcfd);
+}
+
+static void _synchronize_world()
+{
+	pthread_barrier_t *b;
+	eventfd_t c;
+
+	b = sched.sync_b;
+	if (atomic_sub_return(1, &sched.sync_cnt) == 0) {
+		/* printf("before read\n"); */
+		if (read(sched.sync_fd, &c, sizeof(c)) != sizeof(c))
+			msg_exit(1, "read() failed with %m");
+		spin_unlock(&sched.sync_lock);
+	}
+
+	if (pthread_barrier_wait(b) == PTHREAD_BARRIER_SERIAL_THREAD) {
+		pthread_barrier_destroy(b);
+		free(b);
+	}
+}
+
+static void synchronize_world()
+{
+	/* When removing a FD that might fire it is essential to make sure
+	   that we do not get any events of that FD in, after this point,
+	   since we want to delete the data structure describing that FD */
+
+	eventfd_t c = 1;
+
+	if (atomic_set_if_eq(sched.nr_of_workers, 0, &sched.sync_cnt)) {
+		spin_lock(&sched.sync_lock);
+		sched.sync_b = malloc(sizeof(pthread_barrier_t));
+		if (sched.sync_b == NULL)
+			msg_exit(1, "failed to malloc() a pthread_barrier_t");
+
+		pthread_barrier_init(sched.sync_b, NULL, sched.nr_of_workers);
+
+		if (write(sched.sync_fd, &c, sizeof(c)) != sizeof(c))
+			msg_exit(1, "write() failed with: %m\n");
+	}
+
+	_synchronize_world();
 }
 
 void tc_mutex_init(struct tc_mutex *m)
@@ -663,7 +735,7 @@ enum tc_rv tc_mutex_trylock(struct tc_mutex *m)
 
 void tc_mutex_unregister(struct tc_mutex *m)
 {
-	_tc_fd_unregister(&m->read_tcfd);
+	_tc_fd_unregister(&m->read_tcfd, 0);
 	close(m->read_tcfd.fd);
 }
 
@@ -773,9 +845,9 @@ int tc_waitq_finish_wait(struct tc_waitq *wq, struct event *e, struct waitq_ev *
 	return r;
 }
 
-static void tc_waitq_free_wait_ev(struct waitq_ev *we)
+static void tc_waitq_free_wait_ev(struct waitq_ev *we, int sync)
 {
-	_tc_fd_unregister(&we->read_tcfd);
+	_tc_fd_unregister(&we->read_tcfd, sync);
 	close(we->read_tcfd.fd);
 	free(we);
 }
@@ -784,6 +856,7 @@ static void _tc_waitq_finish_wait(struct tc_waitq *wq, struct waitq_ev *we)
 {
 	int f;
 	eventfd_t c;
+	int sync = 0;
 
 	if (atomic_sub_return(1, &we->waiters) == 0) {
 		if (atomic_read(&we->flying)) {
@@ -791,6 +864,7 @@ static void _tc_waitq_finish_wait(struct tc_waitq *wq, struct waitq_ev *we)
 			LIST_REMOVE(we, chain);
 			atomic_set(&we->flying, 0);
 			spin_unlock(&sched.wevs_lock);
+			sync = 1;
 		}
 
 		f = 1;
@@ -807,7 +881,7 @@ static void _tc_waitq_finish_wait(struct tc_waitq *wq, struct waitq_ev *we)
 		}
 
 		if (f)
-			tc_waitq_free_wait_ev(we);
+			tc_waitq_free_wait_ev(we, sync);
 	}
 }
 
@@ -845,6 +919,11 @@ void tc_waitq_wakeup(struct tc_waitq *wq)
 
 void tc_waitq_unregister(struct tc_waitq *wq)
 {
+	_tc_waitq_unregister(wq, 1);
+}
+
+static void _tc_waitq_unregister(struct tc_waitq *wq, int sync)
+{
 	struct waitq_ev *we;
 
 	spin_lock(&wq->lock);
@@ -853,7 +932,7 @@ void tc_waitq_unregister(struct tc_waitq *wq)
 		if (atomic_read(&we->waiters))
 			msg_exit(1, "there are still waiters in tc_waitq_unregister()");
 		wq->active = NULL;
-		tc_waitq_free_wait_ev(we);
+		tc_waitq_free_wait_ev(we, sync);
 	}
 	spin_unlock(&wq->lock);
 }
@@ -965,7 +1044,7 @@ enum tc_rv tc_sleep(int clockid, time_t sec, long nsec)
 	_tc_fd_init(&tcfd, fd);
 	timerfd_settime(fd, 0, &ts, NULL);
 	rv = tc_wait_fd(EPOLLIN, &tcfd);
-	_tc_fd_unregister(&tcfd);
+	_tc_fd_unregister(&tcfd, rv == RV_INTR);
 	close(tcfd.fd);
 	return rv;
 }
