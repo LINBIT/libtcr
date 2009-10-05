@@ -717,10 +717,10 @@ struct waitq_ev *__tc_waitq_prepare_to_wait(struct tc_waitq *wq)
 
 		_tc_fd_init(&we->read_tcfd, ev_fd);
 		atomic_set(&we->waiters, 0);
+		atomic_set(&we->flying, 0);
 		wq->active = we;
 	}
 	we = wq->active;
-	atomic_set(&we->flying, 0);
 	atomic_inc(&we->waiters);
 
 	return we;
