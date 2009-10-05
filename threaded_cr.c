@@ -77,6 +77,7 @@ static void _signal_gets_delivered(struct tc_fd *tcfd, struct event *e);
 static enum tc_rv _signal_cancel(struct waitq_ev *we);
 static struct waitq_ev *tc_waitq_prepare_to_wait(struct tc_waitq *wq, struct event *e);
 static void _tc_waitq_finish_wait(struct tc_waitq *wq, struct waitq_ev *we);
+static void tc_waitq_free_wait_ev(struct waitq_ev *we);
 
 static inline struct tc_thread *tc_current()
 {
@@ -436,8 +437,15 @@ void tc_die()
 		struct waitq_ev *we;
 		/* Maybe there is an signal/waitq wakeup for me, lets try to find that: */
 		spin_lock(&sched.wevs_lock);
-		LIST_FOREACH(we, &sched.wevs, chain)
-			_signal_cancel(we);
+		LIST_FOREACH(we, &sched.wevs, chain) {
+			if (_signal_cancel(we) == RV_OK) {
+				if (atomic_sub_return(1, &we->waiters) == 0) {
+					LIST_REMOVE(we, chain);
+					atomic_set(&we->flying, 0);
+					tc_waitq_free_wait_ev(we);
+				}
+			}
+		}
 		spin_unlock(&sched.wevs_lock);
 		if (atomic_read(&tc->refcnt) > 0) {
 			msg_exit(1, "tc_die(%s): refcnt = %d. Signals still enabled?\n",
@@ -898,7 +906,6 @@ enum tc_rv _signal_cancel(struct waitq_ev *we)
 			free(e);
 			/* clear mask before arm ? */
 			arm(&we->read_tcfd);
-			atomic_dec(&we->waiters); /* Might leaves a we with waiters == 0 in wq->active */
 			goto found;
 		}
 	}
@@ -923,7 +930,9 @@ void tc_signal_disable(struct tc_signal *s)
 		return;
 	}
 
-	_signal_cancel(we);
+	if (_signal_cancel(we) == RV_OK)
+		atomic_dec(&we->waiters); /* Might leaves a we with waiters == 0 in wq->active */
+
 	spin_unlock(&wq->lock);
 }
 
