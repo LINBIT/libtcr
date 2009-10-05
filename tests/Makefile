@@ -15,3 +15,5 @@ all: $(TARGETS)
 
 clean:
 	rm -f *.o $(TARGETS)
+
+$(TARGETS): ../libtc.a
