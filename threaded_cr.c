@@ -566,10 +566,10 @@ static void _tc_fd_init(struct tc_fd *tcfd, int fd)
 	epe.data.ptr = tcfd;
 	epe.events = 0;
 
+	spin_lock_init(&tcfd->lock);
+
 	if (epoll_ctl(sched.efd, EPOLL_CTL_ADD, fd, &epe))
 		msg_exit(1, "epoll_ctl failed with %m\n");
-
-	spin_lock_init(&tcfd->lock);
 }
 
 struct tc_fd *tc_register_fd(int fd)
