@@ -781,6 +781,7 @@ static void _tc_waitq_finish_wait(struct tc_waitq *wq, struct waitq_ev *we)
 		if (atomic_read(&we->flying)) {
 			spin_lock(&sched.wevs_lock);
 			LIST_REMOVE(we, chain);
+			atomic_set(&we->flying, 0);
 			spin_unlock(&sched.wevs_lock);
 		}
 
@@ -817,16 +818,16 @@ void tc_waitq_wakeup(struct tc_waitq *wq)
 	struct waitq_ev *we = NULL;
 	eventfd_t c = 1;
 
-	spin_lock(&sched.wevs_lock);
 	spin_lock(&wq->lock);
 	if (wq->active && atomic_read(&wq->active->waiters)) {
 		we = wq->active;
 		wq->active = NULL;
+		spin_lock(&sched.wevs_lock);
 		LIST_INSERT_HEAD(&sched.wevs, we, chain);
 		atomic_set(&we->flying, 1);
+		spin_unlock(&sched.wevs_lock);
 	}
 	spin_unlock(&wq->lock);
-	spin_unlock(&sched.wevs_lock);
 
 	if (we) {
 		if (write(we->read_tcfd.fd, &c, sizeof(c)) != sizeof(c))
