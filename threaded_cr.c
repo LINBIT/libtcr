@@ -636,11 +636,13 @@ static void _synchronize_world()
 	pthread_barrier_t *b;
 	eventfd_t c;
 
-	b = sched.sync_b;
+	/* We might need to wait until the first caller of synchronize_world() finished the malloc. */
+	do b = sched.sync_b; while (b == NULL);
+
 	if (atomic_sub_return(1, &sched.sync_cnt) == 0) {
-		/* printf("before read\n"); */
 		if (read(sched.sync_fd, &c, sizeof(c)) != sizeof(c))
 			msg_exit(1, "read() failed with %m");
+		sched.sync_b = NULL;
 		spin_unlock(&sched.sync_lock);
 	}
 
@@ -659,12 +661,16 @@ static void synchronize_world()
 	eventfd_t c = 1;
 
 	if (atomic_set_if_eq(sched.nr_of_workers, 0, &sched.sync_cnt)) {
+		pthread_barrier_t *b;
+
 		spin_lock(&sched.sync_lock);
-		sched.sync_b = malloc(sizeof(pthread_barrier_t));
-		if (sched.sync_b == NULL)
+		b = malloc(sizeof(pthread_barrier_t));
+		if (b == NULL)
 			msg_exit(1, "failed to malloc() a pthread_barrier_t");
 
-		pthread_barrier_init(sched.sync_b, NULL, sched.nr_of_workers);
+		pthread_barrier_init(b, NULL, sched.nr_of_workers);
+
+		sched.sync_b = b;
 
 		if (write(sched.sync_fd, &c, sizeof(c)) != sizeof(c))
 			msg_exit(1, "write() failed with: %m\n");
