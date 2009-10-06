@@ -34,6 +34,10 @@ enum thread_state {
 	EXITING
 };
 
+enum thread_flags {
+	TF_THREADS = 1 << 0, /* is on threads chain*/
+};
+
 struct tc_thread {
 	char *name;		/* Leafe that first, for debugging spinlocks */
 	LIST_ENTRY(tc_thread) chain;         /* list of all threads*/
@@ -43,7 +47,7 @@ struct tc_thread {
 	atomic_t refcnt;
 	atomic_t state;		/* See enum thread_state */
 	spinlock_t running;
-	unsigned int is_on_threads_chain; /* TODO: Remove the threads_chain, and this field. Make it sane. */
+	unsigned int flags;
 };
 
 struct setup_info {
@@ -459,7 +463,7 @@ void tc_die()
 
 	spin_lock(&sched.lock);
 	LIST_REMOVE(tc, chain);
-	if (tc->is_on_threads_chain)
+	if (tc->flags & TF_THREADS)
 		LIST_REMOVE(tc, threads_chain);
 	spin_unlock(&sched.lock);
 
@@ -517,7 +521,7 @@ struct tc_thread *tc_thread_new(void (*func)(void *), void *data, char* name)
 	atomic_set(&tc->refcnt, 0);
 	spin_lock_init(&tc->running);
 	atomic_set(&tc->state, SLEEPING);
-	tc->is_on_threads_chain = 0;
+	tc->flags = 0;
 
 	spin_lock(&sched.lock);
 	LIST_INSERT_HEAD(&sched.threads, tc, chain);
@@ -541,7 +545,7 @@ void tc_threads_new(struct tc_threads *threads, void (*func)(void *), void *data
 		tc = tc_thread_new(func, data, ename);
 		spin_lock(&sched.lock);
 		LIST_INSERT_HEAD(threads, tc, threads_chain);
-		tc->is_on_threads_chain = 1;
+		tc->flags |= TF_THREADS;
 		spin_unlock(&sched.lock);
 	}
 }
