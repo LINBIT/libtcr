@@ -193,6 +193,7 @@ void tc_thread_free(struct tc_thread *tc)
 	spin_lock(&tc->running); /* Make sure it has reached switch_to(), after posting EF_EXITING */
 	_tc_waitq_unregister(&tc->exit_waiters, 0);
 	cr_delete(tc->cr);
+	tc->cr = NULL;
 	free(tc);
 }
 
@@ -202,6 +203,9 @@ static void switch_to(struct tc_thread *new)
 
 	/* previous = tc_current();
 	   printf(" (%d) switch: %s -> %s\n", worker.nr, previous->name, new->name); */
+
+	if (!new->cr)
+		msg_exit(1, "die!\n");
 
 	/* It can happen that the stack frame we want to switch to is still active,
 	   in a rare condition: A tc_thread reads a few byte from an fd, and calls
