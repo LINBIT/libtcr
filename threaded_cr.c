@@ -27,15 +27,9 @@ struct waitq_ev {
 
 LIST_HEAD(waitq_evs, waitq_ev);
 
-enum thread_state {
-	SLEEPING,
-	RUNNING,
-	SIGNALLED, /* Got signal while was running*/
-	EXITING
-};
-
 enum thread_flags {
 	TF_THREADS = 1 << 0, /* is on threads chain*/
+	TF_RUNNING = 1 << 1,
 };
 
 struct tc_thread {
@@ -45,9 +39,10 @@ struct tc_thread {
 	struct coroutine *cr;
 	struct tc_waitq exit_waiters;
 	atomic_t refcnt;
-	atomic_t state;		/* See enum thread_state */
 	spinlock_t running;
 	unsigned int flags;
+	struct events pending;
+	spinlock_t lock; /* protects flags member and the pending list. */
 };
 
 struct setup_info {
@@ -81,7 +76,8 @@ static struct scheduler sched;
 static struct tc_thread *tc_main;
 static __thread struct worker_struct worker;
 
-static void _signal_gets_delivered(struct tc_fd *tcfd, struct event *e);
+static void _signal_gets_delivered1(struct tc_fd *tcfd);
+static void _signal_gets_delivered2(struct event *e);
 static enum tc_rv _signal_cancel(struct waitq_ev *we);
 static void signal_cancel_pending();
 static struct waitq_ev *tc_waitq_prepare_to_wait(struct tc_waitq *wq, struct event *e);
@@ -162,9 +158,6 @@ void add_event_fd(struct event *e, __uint32_t ep_events, enum tc_event_flag flag
  	e->ep_events = ep_events;
  	e->flags = flags;
 
-	if (flags != EF_ALL_FREE)
-		atomic_set_if_eq(SLEEPING, RUNNING, &tc_current()->state);
-
 	spin_lock(&tcfd->lock);
 	LIST_INSERT_HEAD(&tcfd->events, e, chain);
 	arm(tcfd);
@@ -177,8 +170,6 @@ static void add_event_cr(struct event *e, __uint32_t ep_events, enum tc_event_fl
 	e->tc = tc;
  	e->ep_events = ep_events;
  	e->flags = flags;
-
-	atomic_set_if_eq(SLEEPING, RUNNING, &tc_current()->state);
 
 	spin_lock(&sched.lock);
 	LIST_INSERT_HEAD(&sched.immediate, e, chain);
@@ -221,16 +212,6 @@ static void switch_to(struct tc_thread *new)
 	   To circumvent that we spin here until the tc_thread is no longer running */
 	spin_lock(&new->running);
 
-	/* If it was sleeping it is running now. If it was signalled it stays signalled */
-	atomic_set_if_eq(RUNNING, SLEEPING, &new->state);
-
-	if (atomic_read(&new->state) == EXITING) {
-		/* With some bad timing it can happen that a signal gets already
-		   delivered while a thread decides to exit. */
-		spin_unlock(&new->running);
-		return;
-	}
-
 	cr_call(new->cr);
 
 	previous = (struct tc_thread *)cr_uptr(cr_caller());
@@ -240,16 +221,24 @@ static void switch_to(struct tc_thread *new)
 void tc_scheduler(void)
 {
 	struct event *e;
+	struct tc_thread *tc = tc_current();
 
-	if (atomic_read(&tc_current()->state) == EXITING) /* avoid deadlocks! */
-		switch_to(&worker.sched_p2);
-
-	if (atomic_set_if_eq(RUNNING, SIGNALLED, &tc_current()->state)) {
-		worker.woken_by_event = NULL; /* compares != to any real address */
+	spin_lock(&tc->lock);
+	e = LIST_FIRST(&tc->pending);
+	if (e) {
+		LIST_REMOVE(e, chain);
+		spin_unlock(&tc->lock);
+		if (e->flags == EF_ALL_FREE)
+			_signal_gets_delivered2(e);
 		worker.woken_by_tcfd  = NULL;
-
+		worker.woken_by_event = e;
 		return;
+		/* Here might be a problem. When delivering an event late, we deliver
+		   it without woken_by_tcfd set. Might cause a rearm() to get lost.
+		*/
 	}
+	tc->flags &= ~TF_RUNNING;
+	spin_unlock(&tc->lock);
 
 	spin_lock(&sched.lock);
 	e = LIST_FIRST(&sched.immediate);
@@ -328,13 +317,21 @@ static void scheduler_part2()
 		worker.woken_by_tcfd = tcfd;
 
 		if (e->flags == EF_ALL_FREE) {
-			_signal_gets_delivered(tcfd, e);
-
-			if (atomic_swap(&tc->state, SIGNALLED) >= RUNNING)
-				continue;
-
+			_signal_gets_delivered1(tcfd);
 			worker.woken_by_tcfd = NULL; /* Do not expose the tcfd in case it was a signal. */
 		}
+
+		spin_lock(&tc->lock);
+		if (tc->flags & TF_RUNNING) {
+			LIST_INSERT_HEAD(&tc->pending, e, chain);
+			spin_unlock(&tc->lock);
+			continue;
+		}
+		tc->flags |= TF_RUNNING;
+		spin_unlock(&tc->lock);
+
+		if (e->flags == EF_ALL_FREE)
+			_signal_gets_delivered2(e);
 
 		switch_to(tc);
 	}
@@ -352,7 +349,9 @@ void tc_worker_init(int i)
 	atomic_set(&worker.main_thread.refcnt, 0);
 	spin_lock_init(&worker.main_thread.running);
 	spin_lock(&worker.main_thread.running); /* runs currently */
-	atomic_set(&worker.main_thread.state, RUNNING);
+	worker.main_thread.flags = TF_RUNNING;
+	LIST_INIT(&worker.main_thread.pending);
+	spin_lock_init(&worker.main_thread.lock);
 	/* LIST_INSERT_HEAD(&sched.threads, &worker.main_thread, chain); */
 
 	asprintf(&worker.sched_p2.name, "sched_%d", i);
@@ -364,7 +363,9 @@ void tc_worker_init(int i)
 	tc_waitq_init(&worker.sched_p2.exit_waiters);
 	atomic_set(&worker.sched_p2.refcnt, 0);
 	spin_lock_init(&worker.sched_p2.running);
-	atomic_set(&worker.sched_p2.state, SLEEPING);
+	worker.sched_p2.flags = 0;
+	LIST_INIT(&worker.sched_p2.pending);
+	spin_lock_init(&worker.sched_p2.lock);
 }
 
 void tc_init()
@@ -477,11 +478,9 @@ void tc_die()
 		}
 	}
 
-	atomic_set(&tc->state, EXITING); /* We will not get woken by sigs ;) */
 	add_event_cr(&e, 0, EF_EXITING, tc);  /* The scheduler will free me */
-	tc_scheduler();
-	/* Not reached. */
-	msg_exit(1, "tc_scheduler() returned in tc_die() [state = %d]\n", atomic_read(&tc->state));
+	switch_to(&worker.sched_p2); /* like tc_scheduler(); but avoids deadlocks */
+	msg_exit(1, "tc_scheduler() returned in tc_die() [flags = %d]\n", &tc->flags);
 }
 
 void tc_setup(void *data)
@@ -520,8 +519,9 @@ struct tc_thread *tc_thread_new(void (*func)(void *), void *data, char* name)
 	tc_waitq_init(&tc->exit_waiters);
 	atomic_set(&tc->refcnt, 0);
 	spin_lock_init(&tc->running);
-	atomic_set(&tc->state, SLEEPING);
 	tc->flags = 0;
+	LIST_INIT(&tc->pending);
+	spin_lock_init(&tc->lock);
 
 	spin_lock(&sched.lock);
 	LIST_INSERT_HEAD(&sched.threads, tc, chain);
@@ -956,7 +956,7 @@ void tc_signal_enable(struct tc_signal *s)
 	spin_unlock(&s->wq.lock);
 }
 
-void _signal_gets_delivered(struct tc_fd *tcfd, struct event *e)
+static void _signal_gets_delivered1(struct tc_fd *tcfd)
 {
 	struct waitq_ev *we;
 
@@ -965,6 +965,10 @@ void _signal_gets_delivered(struct tc_fd *tcfd, struct event *e)
 	we = container_of(tcfd, struct waitq_ev, read_tcfd);
 
 	_tc_waitq_finish_wait(NULL, we);
+}
+
+static void _signal_gets_delivered2(struct event *e)
+{
 	free(e);
 }
 
