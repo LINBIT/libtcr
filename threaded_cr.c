@@ -99,6 +99,11 @@ struct worker_struct {
 	struct tc_fd *woken_by_tcfd;  /* might be set after tc_scheduler() */
 };
 
+enum inter_worker_interrupts {
+	IWI_SYNC,
+	IWI_IMMEDIATE,
+};
+
 struct scheduler {
 	spinlock_t lock;           /* protects the threads and the immediate lists */
 	struct tc_threads threads;
@@ -107,7 +112,8 @@ struct scheduler {
 	spinlock_t wevs_lock;      /* protects the wevs list */
 	int nr_of_workers;
 	int efd;                   /* epoll fd */
-	int sync_fd;               /* event fd to synchronize all workers */
+	int sync_fd;               /* IWI event fd to synchronize all workers */
+	int immediate_fd;          /* IWI immediate */
 	atomic_t sync_cnt;
 	pthread_barrier_t *sync_b;
 	spinlock_t sync_lock;
@@ -259,6 +265,67 @@ static void switch_to(struct tc_thread *new)
 	spin_unlock(&previous->running);
 }
 
+static void arm_immediate(int op)
+{
+	struct epoll_event epe;
+
+	epe.data.u32 = IWI_IMMEDIATE;
+	epe.events = EPOLLIN | EPOLLONESHOT;
+
+	if (epoll_ctl(sched.efd, op, sched.immediate_fd, &epe))
+		msg_exit(1, "epoll_ctl failed with %m\n");
+}
+
+static void run_immediate(struct tc_thread *not_for_tc)
+{
+	struct event *e;
+
+	spin_lock(&sched.lock);
+	e = LIST_FIRST(&sched.immediate);
+	while (e) {
+		worker.woken_by_event = e;
+		worker.woken_by_tcfd  = NULL;
+		if (e->tc != not_for_tc) {
+			remove_event(e);
+			spin_unlock(&sched.lock);
+			switch (e->flags) {
+			case EF_READY:
+				switch_to(e->tc);
+				return;
+			case EF_EXITING:
+				tc_thread_free(e->tc);
+				spin_lock(&sched.lock);
+				e = LIST_FIRST(&sched.immediate);
+				continue;
+			default:
+				msg_exit(1, "Wrong e->flags in immediate list\n");
+			}
+		}
+		e = LIST_NEXT(e, chain);
+	}
+	spin_unlock(&sched.lock);
+}
+
+static void process_immediate()
+{
+	eventfd_t c;
+
+	if (read(sched.immediate_fd, &c, sizeof(c)) != sizeof(c))
+		msg_exit(1, "read() failed with %m");
+
+	arm_immediate(EPOLL_CTL_MOD);
+	run_immediate(NULL);
+}
+
+static void iwi_immediate()
+{
+	/* Some other worker should please process the queued immediate events. */
+	eventfd_t c = 1;
+
+	if (write(sched.immediate_fd, &c, sizeof(c)) != sizeof(c))
+		msg_exit(1, "write() failed with: %m\n");
+}
+
 void tc_scheduler(void)
 {
 	struct event *e;
@@ -278,30 +345,7 @@ void tc_scheduler(void)
 	tc->flags &= ~TF_RUNNING;
 	spin_unlock(&tc->lock);
 
-	spin_lock(&sched.lock);
-	e = LIST_FIRST(&sched.immediate);
-	while (e) {
-		worker.woken_by_event = e;
-		worker.woken_by_tcfd  = NULL;
-		if (e->tc != tc_current()) {
-			remove_event(e);
-			spin_unlock(&sched.lock);
-			switch (e->flags) {
-			case EF_READY:
-				switch_to(e->tc);
-				return;
-			case EF_EXITING:
-				tc_thread_free(e->tc);
-				spin_lock(&sched.lock);
-				e = LIST_FIRST(&sched.immediate);
-				continue;
-			default:
-				msg_exit(1, "Wrong e->flags in immediate list\n");
-			}
-		}
-		e = LIST_NEXT(e, chain);
-	}
-	spin_unlock(&sched.lock);
+	run_immediate(tc);
 
 	switch_to(&worker.sched_p2); /* always -> scheduler_part2()*/
 }
@@ -328,12 +372,16 @@ static void scheduler_part2()
 		if (er < 0)
 			msg_exit(1, "epoll_wait() failed with: %m\n");
 
-		tcfd = (struct tc_fd *)epe.data.ptr;
-
-		if (!tcfd) {
+		switch (epe.data.u32) {
+		case IWI_SYNC:
 			_synchronize_world();
 			continue;
+		case IWI_IMMEDIATE:
+			process_immediate();
+			continue;
 		}
+
+		tcfd = (struct tc_fd *)epe.data.ptr;
 
 		spin_lock(&tcfd->lock);
 		tcfd->ep_events = -1; /* recalc them */
@@ -428,11 +476,17 @@ void tc_init()
 	if (sched.efd < 0)
 		msg_exit(1, "epoll_create failed with %m\n");
 
-	epe.data.ptr = NULL;
+	epe.data.u32 = IWI_SYNC;
 	epe.events = EPOLLIN;
 
 	if (epoll_ctl(sched.efd, EPOLL_CTL_ADD, sched.sync_fd, &epe))
 		msg_exit(1, "epoll_ctl failed with %m\n");
+
+	sched.immediate_fd = eventfd(0, 0);
+	if (sched.immediate_fd == -1)
+		msg_exit(1, "eventfd() failed with: %m\n");
+
+	arm_immediate(EPOLL_CTL_ADD);
 }
 
 static void *worker_pthread(void *arg)
@@ -518,6 +572,7 @@ void tc_die()
 	}
 
 	add_event_cr(&e, 0, EF_EXITING, tc);  /* The scheduler will free me */
+	iwi_immediate();
 	switch_to(&worker.sched_p2); /* like tc_scheduler(); but avoids deadlocks */
 	msg_exit(1, "tc_scheduler() returned in tc_die() [flags = %d]\n", &tc->flags);
 }
@@ -566,6 +621,7 @@ struct tc_thread *tc_thread_new(void (*func)(void *), void *data, char* name)
 	LIST_INSERT_HEAD(&sched.threads, tc, chain);
 	spin_unlock(&sched.lock);
 	add_event_cr(&e1, 0, EF_READY, tc);           /* removed in the tc_scheduler */
+	iwi_immediate();
 	add_event_cr(&e2, 0, EF_READY, tc_current()); /* removed in the tc_scheduler */
 	tc_scheduler(); /* child first, policy. */
 
