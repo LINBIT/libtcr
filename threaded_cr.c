@@ -230,12 +230,9 @@ void tc_scheduler(void)
 		spin_unlock(&tc->lock);
 		if (e->flags == EF_ALL_FREE)
 			_signal_gets_delivered2(e);
-		worker.woken_by_tcfd  = NULL;
+		worker.woken_by_tcfd  = e->tcfd;
 		worker.woken_by_event = e;
 		return;
-		/* Here might be a problem. When delivering an event late, we deliver
-		   it without woken_by_tcfd set. Might cause a rearm() to get lost.
-		*/
 	}
 	tc->flags &= ~TF_RUNNING;
 	spin_unlock(&tc->lock);
@@ -313,16 +310,14 @@ static void scheduler_part2()
 
 		spin_unlock(&tcfd->lock);
 
-		worker.woken_by_event = e;
-		worker.woken_by_tcfd = tcfd;
-
 		if (e->flags == EF_ALL_FREE) {
 			_signal_gets_delivered1(tcfd);
-			worker.woken_by_tcfd = NULL; /* Do not expose the tcfd in case it was a signal. */
+			tcfd = NULL; /* Do not expose the tcfd in case it was a signal. */
 		}
 
 		spin_lock(&tc->lock);
 		if (tc->flags & TF_RUNNING) {
+			e->tcfd = tcfd;
 			LIST_INSERT_HEAD(&tc->pending, e, chain);
 			spin_unlock(&tc->lock);
 			continue;
@@ -332,6 +327,9 @@ static void scheduler_part2()
 
 		if (e->flags == EF_ALL_FREE)
 			_signal_gets_delivered2(e);
+
+		worker.woken_by_event = e;
+		worker.woken_by_tcfd = tcfd;
 
 		switch_to(tc);
 	}

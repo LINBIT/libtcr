@@ -27,7 +27,10 @@ enum tc_rv {
 
 struct event {
 	LIST_ENTRY(event) chain;
-	struct tc_thread* tc;
+	union {
+		struct tc_thread *tc; /* when it is attached to an tc_fd */
+		struct tc_fd *tcfd;   /* when it is attaache to an tc_thread */
+	};
 	__uint32_t ep_events; /* EPOLLIN, EPOLLOUT, ... and EF_IMMEDIATE*/
 	enum tc_event_flag flags;
 };
