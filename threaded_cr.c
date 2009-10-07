@@ -84,6 +84,7 @@ struct tc_thread {
 	unsigned int flags;
 	struct events pending;
 	spinlock_t lock; /* protects flags member and the pending list. */
+	struct event e;  /* Used during start and stop. */
 };
 
 struct setup_info {
@@ -550,7 +551,6 @@ enum tc_rv tc_wait_fd(__uint32_t ep_events, struct tc_fd *tcfd)
 
 void tc_die()
 {
-	struct event e;
 	struct tc_thread *tc = tc_current();
 
 	/* printf(" (%d) exiting: %s\n", worker.nr, tc->name); */
@@ -571,7 +571,7 @@ void tc_die()
 		}
 	}
 
-	add_event_cr(&e, 0, EF_EXITING, tc);  /* The scheduler will free me */
+	add_event_cr(&tc->e, 0, EF_EXITING, tc);  /* The scheduler will free me */
 	iwi_immediate();
 	switch_to(&worker.sched_p2); /* like tc_scheduler(); but avoids deadlocks */
 	msg_exit(1, "tc_scheduler() returned in tc_die() [flags = %d]\n", &tc->flags);
@@ -593,7 +593,6 @@ void tc_setup(void *data)
 struct tc_thread *tc_thread_new(void (*func)(void *), void *data, char* name)
 {
 	struct tc_thread *tc;
-	struct event e1, e2;
 	struct setup_info i;
 
 	i.func = func;
@@ -620,10 +619,8 @@ struct tc_thread *tc_thread_new(void (*func)(void *), void *data, char* name)
 	spin_lock(&sched.lock);
 	LIST_INSERT_HEAD(&sched.threads, tc, chain);
 	spin_unlock(&sched.lock);
-	add_event_cr(&e1, 0, EF_READY, tc);           /* removed in the tc_scheduler */
+	add_event_cr(&tc->e, 0, EF_READY, tc);           /* removed in the tc_scheduler */
 	iwi_immediate();
-	add_event_cr(&e2, 0, EF_READY, tc_current()); /* removed in the tc_scheduler */
-	tc_scheduler(); /* child first, policy. */
 
 	return tc;
 }
