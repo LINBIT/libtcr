@@ -1,5 +1,9 @@
-CFLAGS +=-Wall -g -DDEBUG
+#CFLAGS +=-Wall
+#LDFLAGS +=-lpthread
+
+CFLAGS +=-Wall -g -DSPINLOCK_DEBUG -DSTACK_OVERFLOW_PROTECTION
 LDFLAGS +=-lpthread -g
+
 export CFLAGS LDFLAGS
 
 .PHONY: tests clean

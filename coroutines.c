@@ -46,8 +46,6 @@ static void cr_setup()
 	exit(1);
 }
 
-#define STACK_OVERFLOW_PROTECTION
-
 struct coroutine *cr_create(void (*func)(void *), void *arg, int stack_size)
 {
 	struct coroutine *cr;

@@ -1,7 +1,7 @@
 #ifndef SPINLOCK_H
 #define SPINLOCK_H
 
-#ifdef DEBUG
+#ifdef SPINLOCK_DEBUG
 #include "spinlock_debug.h"
 #else
 #include "spinlock_plain.h"
