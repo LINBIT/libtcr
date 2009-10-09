@@ -1,3 +1,4 @@
+dnl To produce configure script and config.h.in run autoconf and autoheader.
 AC_INIT([tc],[0.99],[philipp.reisner@linbit.com])
 AC_CONFIG_HEADERS(config.h:config.in)
 AC_PROG_CC
