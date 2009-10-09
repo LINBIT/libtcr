@@ -54,10 +54,15 @@ extern int timerfd_gettime (int __ufd, struct itimerspec *__otmr)
 }
 #endif
 
+enum waitq_ev_flags {
+	WE_FLYING    = 1 << 0, /* is on wevs list */
+	WE_REF_BY_WQ = 1 << 1, /* is referenced by wq->active */
+};
+
 struct waitq_ev {
 	LIST_ENTRY(waitq_ev) chain;
 	atomic_t waiters;   /* Number of tc_threads sleeping on the wq */
-	atomic_t flying;
+	unsigned int flags;
 	struct tc_fd read_tcfd;
 };
 
@@ -834,7 +839,7 @@ struct waitq_ev *__tc_waitq_prepare_to_wait(struct tc_waitq *wq)
 
 		_tc_fd_init(&we->read_tcfd, ev_fd);
 		atomic_set(&we->waiters, 0);
-		atomic_set(&we->flying, 0);
+		we->flags = WE_REF_BY_WQ;
 		wq->active = we;
 	}
 	we = wq->active;
@@ -896,15 +901,15 @@ static void _tc_waitq_finish_wait(struct tc_waitq *wq, struct waitq_ev *we)
 	int sync = 0;
 
 	if (atomic_sub_return(1, &we->waiters) == 0) {
-		if (atomic_read(&we->flying)) {
-			spin_lock(&sched.wevs_lock);
+		spin_lock(&sched.wevs_lock);
+		if (we->flags & WE_FLYING) {
 			LIST_REMOVE(we, chain);
-			atomic_set(&we->flying, 0);
-			spin_unlock(&sched.wevs_lock);
+			we->flags &= ~WE_FLYING;
 			sync = 1;
 		}
+		f = !(we->flags & WE_REF_BY_WQ);
+		spin_unlock(&sched.wevs_lock);
 
-		f = 1;
 		if (wq) {
 			spin_lock(&wq->lock);
 			if (!wq->active) {
@@ -912,6 +917,7 @@ static void _tc_waitq_finish_wait(struct tc_waitq *wq, struct waitq_ev *we)
 				/* Do not care if that read fails. We can finish_wait even if the
 				   we where never woken up... */
 				wq->active = we;
+				we->flags |= WE_REF_BY_WQ;
 				f = 0;
 			}
 			spin_unlock(&wq->lock);
@@ -943,7 +949,7 @@ void tc_waitq_wakeup(struct tc_waitq *wq)
 		wq->active = NULL;
 		spin_lock(&sched.wevs_lock);
 		LIST_INSERT_HEAD(&sched.wevs, we, chain);
-		atomic_set(&we->flying, 1);
+		we->flags = (we->flags & ~WE_REF_BY_WQ) | WE_FLYING;
 		spin_unlock(&sched.wevs_lock);
 	}
 	spin_unlock(&wq->lock);
@@ -1066,7 +1072,7 @@ static void signal_cancel_pending()
 			if (_signal_cancel(we) == RV_OK) {
 				if (atomic_sub_return(1, &we->waiters) == 0) {
 					LIST_REMOVE(we, chain);
-					atomic_set(&we->flying, 0);
+					we->flags &= ~WE_FLYING;
 					break;
 				}
 			}
