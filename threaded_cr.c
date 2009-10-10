@@ -1,4 +1,4 @@
-#define _GNU_SOURCE /* for asprintf() */
+#define _GNU_SOURCE /* for asprintf() */ 
 
 #include "config.h"
 
