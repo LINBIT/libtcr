@@ -57,6 +57,7 @@ extern int timerfd_gettime (int __ufd, struct itimerspec *__otmr)
 enum waitq_ev_flags {
 	WE_FLYING    = 1 << 0, /* is on wevs list */
 	WE_REF_BY_WQ = 1 << 1, /* is referenced by wq->active */
+	WE_SYNC      = 1 << 2, /* Cancelled while flying, better synchronize_world() on free */
 };
 
 struct waitq_ev {
@@ -976,7 +977,8 @@ static void _tc_waitq_finish_wait(struct tc_waitq *wq, struct waitq_ev *we)
 		if (we->flags & WE_FLYING) {
 			LIST_REMOVE(we, chain);
 			we->flags &= ~WE_FLYING;
-			sync = 1;
+			if (we->flags & WE_SYNC)
+				sync = 1;
 		}
 		f = !(we->flags & WE_REF_BY_WQ);
 		spin_unlock(&sched.wevs_lock);
@@ -988,7 +990,7 @@ static void _tc_waitq_finish_wait(struct tc_waitq *wq, struct waitq_ev *we)
 				/* Do not care if that read fails. We can finish_wait even if the
 				   we where never woken up... */
 				wq->active = we;
-				we->flags |= WE_REF_BY_WQ;
+				we->flags = WE_REF_BY_WQ;
 				f = 0;
 			}
 			spin_unlock(&wq->lock);
@@ -1103,6 +1105,7 @@ enum tc_rv _signal_cancel(struct waitq_ev *we)
 			free(e);
 			/* clear mask before arm ? */
 			arm(&we->read_tcfd);
+			we->flags |= WE_SYNC;
 			goto found;
 		}
 	}
