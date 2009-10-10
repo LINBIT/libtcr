@@ -64,13 +64,9 @@ struct tc_mutex {
 	struct tc_fd read_tcfd;
 };
 
-struct waitq_ev;
-
-LIST_HEAD(wait_evs, waitq_ev);
-
 struct tc_waitq {
-	struct waitq_ev *active;
-	spinlock_t lock;
+	struct event_list waiters;
+	int nr_waiters;
 };
 
 struct tc_signal {
@@ -145,8 +141,8 @@ enum tc_rv tc_mutex_trylock(struct tc_mutex *m);
    tc_signal_disable is idempotent.
 */
 void tc_signal_init(struct tc_signal *s);
-void tc_signal_enable(struct tc_signal *s);
-void tc_signal_disable(struct tc_signal *s);
+struct event *tc_signal_enable(struct tc_signal *s);
+void tc_signal_disable(struct tc_signal *s, struct event *e);
 void tc_signal_fire(struct tc_signal *s);
 void tc_signal_unregister(struct tc_signal *s);
 
@@ -159,23 +155,20 @@ void tc_waitq_unregister(struct tc_waitq *wq);
 enum tc_rv tc_sleep(int clockid, time_t sec, long nsec);
 
 /* The following are intended to be used via the tc_waitq_wait_event(wq, condition) macro */
-struct waitq_ev *_tc_waitq_prepare_to_wait(struct tc_waitq *wq, struct event *e);
-int tc_waitq_finish_wait(struct tc_waitq *wq, struct event *e, struct waitq_ev *we);
+void tc_waitq_prepare_to_wait(struct tc_waitq *wq, struct event *e);
+int tc_waitq_finish_wait(struct tc_waitq *wq, struct event *e);
 
 #define __tc_wait_event(wq, cond, rv)					\
 do {									\
-	struct waitq_ev *we;						\
 	struct event e;							\
 	while (1) {							\
-		spin_lock(&(wq)->lock);					\
+		tc_waitq_prepare_to_wait(wq, &e);			\
 		if (cond) {						\
-			spin_unlock(&(wq)->lock);			\
+			tc_waitq_finish_wait(wq, &e);			\
 			break;						\
 		}							\
-		we = _tc_waitq_prepare_to_wait(wq, &e);			\
-		spin_unlock(&(wq)->lock);				\
 		tc_scheduler();						\
-		if (tc_waitq_finish_wait(wq, &e, we)) {			\
+		if (tc_waitq_finish_wait(wq, &e)) {			\
 			rv = RV_INTR;					\
 			break;						\
 		}							\

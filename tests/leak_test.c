@@ -21,18 +21,19 @@ void drbd_connection(void *unused)
 {
 	static int thread_no = 0;
 	int my_thread_no = thread_no++;
+	struct event *ed, *es;
 
 	fprintf(stderr, "DRBD reader %d started.\n", my_thread_no);
 
-	tc_signal_enable(&the_drbd_signal);
-	tc_signal_enable(&the_signal);
+	ed = tc_signal_enable(&the_drbd_signal);
+	es = tc_signal_enable(&the_signal);
 
 	tc_sleep(CLOCK_MONOTONIC, 0, 10000000);
 
 	fprintf(stderr, "%d: ending DRBD connection\n", my_thread_no);
 
-	tc_signal_disable(&the_signal);
-	tc_signal_disable(&the_drbd_signal);
+	tc_signal_disable(&the_signal, ed);
+	tc_signal_disable(&the_drbd_signal, es);
 
 	tc_signal_fire(&the_drbd_signal);
 	//tc_signal_fire(&the_drbd_signal);

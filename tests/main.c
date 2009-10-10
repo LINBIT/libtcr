@@ -127,11 +127,12 @@ struct reader_info {
 static void unix_socket_reader(void *data)
 {
 	struct reader_info *ri = (struct reader_info *)data;
+	struct event *e;
 	char b[10];
 	int rr;
 	void *m;
 
-	tc_signal_enable(ri->all_exit);
+	e = tc_signal_enable(ri->all_exit);
 
 	while(1) {
 		if (tc_wait_fd(EPOLLIN, ri->in) != RV_OK)
@@ -156,7 +157,7 @@ static void unix_socket_reader(void *data)
 		fflush(stdout);
 	}
 
-	tc_signal_disable(ri->all_exit);
+	tc_signal_disable(ri->all_exit, e);
 }
 
 static void stdin_reader(void *data)

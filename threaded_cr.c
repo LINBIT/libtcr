@@ -54,19 +54,6 @@ extern int timerfd_gettime (int __ufd, struct itimerspec *__otmr)
 }
 #endif
 
-enum waitq_ev_flags {
-	WE_FLYING    = 1 << 0, /* is on wevs list */
-	WE_REF_BY_WQ = 1 << 1, /* is referenced by wq->active */
-	WE_SYNC      = 1 << 2, /* Cancelled while flying, better synchronize_world() on free */
-};
-
-struct waitq_ev {
-	LIST_ENTRY(waitq_ev) we_chain;
-	atomic_t nr_waiters;   /* Number of tc_threads sleeping on the wq */
-	unsigned int flags;
-	struct tc_fd read_tcfd;
-};
-
 LIST_HEAD(waitq_evs, waitq_ev);
 
 enum thread_flags {
@@ -110,8 +97,6 @@ struct scheduler {
 	spinlock_t lock;           /* protects the threads list */
 	struct tc_threads threads;
 	struct event_list immediate;
-	struct waitq_evs wevs;     /* List of 'flying' signals and waitq wakeup events */
-	spinlock_t wevs_lock;      /* protects the wevs list */
 	int nr_of_workers;
 	int efd;                   /* epoll fd */
 	int sync_fd;               /* IWI event fd to synchronize all workers */
@@ -125,16 +110,10 @@ static struct scheduler sched;
 static struct tc_thread *tc_main;
 static __thread struct worker_struct worker;
 
-static void _signal_gets_delivered1(struct tc_fd *tcfd);
 static void _signal_gets_delivered2(struct event *e);
-static enum tc_rv _signal_cancel(struct waitq_ev *we);
 static void signal_cancel_pending();
-static struct waitq_ev *tc_waitq_prepare_to_wait(struct tc_waitq *wq, struct event *e);
-static void _tc_waitq_finish_wait(struct tc_waitq *wq, struct waitq_ev *we);
-static void tc_waitq_free_wait_ev(struct waitq_ev *we, int sync);
 static void _synchronize_world();
 static void synchronize_world();
-static void _tc_waitq_unregister(struct tc_waitq *wq, int sync);
 
 static inline struct tc_thread *tc_current()
 {
@@ -200,19 +179,32 @@ static void event_list_init(struct event_list *el)
 }
 
 /* must_hold el->lock */
-static void remove_event(struct event *e, struct event_list *el)
+static void _remove_event(struct event *e, struct event_list *el)
 {
 	CIRCLEQ_REMOVE(&el->events, e, e_chain);
 	atomic_dec(&e->tc->refcnt);
 }
 
-static void add_event(struct event *e, struct event_list *el)
+static void remove_event(struct event *e, struct event_list *el)
+{
+	spin_lock(&el->lock);
+	_remove_event(e, el);
+	spin_unlock(&el->lock);
+}
+
+/* must_hold el->lock */
+static void _add_event(struct event *e, struct event_list *el)
 {
 	atomic_inc(&tc_current()->refcnt);
 	e->tc = tc_current();
 
-	spin_lock(&el->lock);
 	CIRCLEQ_INSERT_HEAD(&el->events, e, e_chain);
+}
+
+static void add_event(struct event *e, struct event_list *el)
+{
+	spin_lock(&el->lock);
+	_add_event(e, el);
 	spin_unlock(&el->lock);
 }
 
@@ -222,8 +214,8 @@ void add_event_fd(struct event *e, __uint32_t ep_events, enum tc_event_flag flag
  	e->ep_events = ep_events;
  	e->flags = flags;
 
-	add_event(e, &tcfd->events);
 	spin_lock(&tcfd->events.lock);
+	_add_event(e, &tcfd->events);
 	arm(tcfd);
 	spin_unlock(&tcfd->events.lock);
 }
@@ -238,15 +230,13 @@ static void add_event_cr(struct event *e, __uint32_t ep_events, enum tc_event_fl
 
 void remove_event_fd(struct event *e, struct tc_fd *tcfd)
 {
-	spin_lock(&tcfd->events.lock);
 	remove_event(e, &tcfd->events);
-	spin_unlock(&tcfd->events.lock);
 }
 
 void tc_thread_free(struct tc_thread *tc)
 {
 	spin_lock(&tc->running); /* Make sure it has reached switch_to(), after posting EF_EXITING */
-	_tc_waitq_unregister(&tc->exit_waiters, 0);
+	tc_waitq_unregister(&tc->exit_waiters);
 	cr_delete(tc->cr);
 	tc->cr = NULL;
 	free(tc);
@@ -298,7 +288,7 @@ static int run_immediate(struct tc_thread *not_for_tc)
 		worker.woken_by_event = e;
 		worker.woken_by_tcfd  = NULL;
 		if (e->tc != not_for_tc) {
-			remove_event(e, &sched.immediate);
+			_remove_event(e, &sched.immediate);
 			spin_unlock(&sched.lock);
 			switch (e->flags) {
 			case EF_READY:
@@ -347,7 +337,7 @@ void tc_sched_yield()
 	add_event_cr(&e, 0, EF_READY, tc); /* use tc->e ? */
 	if (!run_immediate(tc)) {
 		spin_lock(&sched.lock);
-		remove_event(&e, &sched.immediate);
+		_remove_event(&e, &sched.immediate);
 		spin_unlock(&sched.lock);
 	}
 }
@@ -422,14 +412,12 @@ static void scheduler_part2()
 		}
 
 		tc = e->tc;
-		remove_event(e, &tcfd->events);
+		_remove_event(e, &tcfd->events);
 
 		spin_unlock(&tcfd->events.lock);
 
-		if (e->flags == EF_ALL_FREE) {
-			_signal_gets_delivered1(tcfd);
+		if (e->flags == EF_ALL_FREE)
 			tcfd = NULL; /* Do not expose the tcfd in case it was a signal. */
-		}
 
 		spin_lock(&tc->lock);
 		if (tc->flags & TF_RUNNING) {
@@ -488,9 +476,7 @@ void tc_init()
 
 	event_list_init(&sched.immediate);
 	LIST_INIT(&sched.threads);
-	LIST_INIT(&sched.wevs);
 	spin_lock_init(&sched.lock);
-	spin_lock_init(&sched.wevs_lock);
 
 	spin_lock_init(&sched.sync_lock);
 	atomic_set(&sched.sync_cnt, 0);
@@ -886,14 +872,13 @@ static enum tc_rv _thread_valid(struct tc_thread *look_for)
 
 enum tc_rv tc_thread_wait(struct tc_thread *wait_for)
 {
-	struct waitq_ev *we;
 	struct event e;
 	enum tc_rv rv;
 
 	spin_lock(&sched.lock);
 	rv = _thread_valid(wait_for);  /* wait_for might have already exited */
 	if (rv == RV_OK)
-		we = tc_waitq_prepare_to_wait(&wait_for->exit_waiters, &e);
+		tc_waitq_prepare_to_wait(&wait_for->exit_waiters, &e);
 
 	spin_unlock(&sched.lock);
 	if (rv == RV_THREAD_NA)
@@ -902,7 +887,7 @@ enum tc_rv tc_thread_wait(struct tc_thread *wait_for)
 	tc_scheduler();
 
 	/* Do not pass wait_for->exit_waiters, since wait_for might be already freed. */
-	if (tc_waitq_finish_wait(NULL, &e, we))
+	if (tc_waitq_finish_wait(NULL, &e))
 		rv = RV_INTR;
 
 	return rv;
@@ -910,167 +895,74 @@ enum tc_rv tc_thread_wait(struct tc_thread *wait_for)
 
 void tc_waitq_init(struct tc_waitq *wq)
 {
-	spin_lock_init(&wq->lock);
-	wq->active = NULL;
+	event_list_init(&wq->waiters);
+	wq->nr_waiters = 0;
 }
 
-/* must_hold wq->lock, must call add_event_fd() */
-struct waitq_ev *__tc_waitq_prepare_to_wait(struct tc_waitq *wq)
+static void _tc_waitq_prepare_to_wait(struct tc_waitq *wq, struct event *e)
 {
-	struct waitq_ev *we;
-	int ev_fd;
-
-	if (!wq->active) {
-		we = malloc(sizeof(struct waitq_ev));
-		if (!we)
-			msg_exit(1, "malloc of waitq_ev failed in tc_waitq_init\n");
-
-		ev_fd = eventfd(0, 0);
-		if (ev_fd == -1)
-			msg_exit(1, "eventfd() failed with: %m\n");
-
-		_tc_fd_init(&we->read_tcfd, ev_fd);
-		atomic_set(&we->nr_waiters, 0);
-		we->flags = WE_REF_BY_WQ;
-		wq->active = we;
-	}
-	we = wq->active;
-	atomic_inc(&we->nr_waiters);
-
-	return we;
+	e->ep_events = 0; /* unused */
+	spin_lock(&wq->waiters.lock);
+	wq->nr_waiters++;
+	_add_event(e, &wq->waiters);
+	spin_unlock(&wq->waiters.lock);
 }
 
-/* must_hold wq->lock */
-struct waitq_ev *_tc_waitq_prepare_to_wait(struct tc_waitq *wq, struct event *e)
+void tc_waitq_prepare_to_wait(struct tc_waitq *wq, struct event *e)
 {
-	struct waitq_ev *we;
-
-	we = __tc_waitq_prepare_to_wait(wq);
-	add_event_fd(e, EPOLLIN, EF_ALL, &we->read_tcfd);
-
-	return we;
+	e->flags = EF_READY;
+	_tc_waitq_prepare_to_wait(wq, e);
 }
 
-static struct waitq_ev *tc_waitq_prepare_to_wait(struct tc_waitq *wq, struct event *e)
-{
-	struct waitq_ev *we;
-
-	spin_lock(&wq->lock);
-	we = _tc_waitq_prepare_to_wait(wq, e);
-	spin_unlock(&wq->lock);
-
-	return we;
-}
-
-
-int tc_waitq_finish_wait(struct tc_waitq *wq, struct event *e, struct waitq_ev *we)
+int tc_waitq_finish_wait(struct tc_waitq *wq, struct event *e)
 {
 	int r = (worker.woken_by_event != e);
 
 	if (r)
-		remove_event_fd(e, &we->read_tcfd);
+		remove_event(e, NULL /* todo */);
 
 	/* Do not expose wakening event/tcfd, user should not tc_rearm() on them */
 	worker.woken_by_event = NULL;
 	worker.woken_by_tcfd  = NULL;
 
-	_tc_waitq_finish_wait(wq, we);
-
 	return r;
-}
-
-static void tc_waitq_free_wait_ev(struct waitq_ev *we, int sync)
-{
-	_tc_fd_unregister(&we->read_tcfd, sync);
-	close(we->read_tcfd.fd);
-	free(we);
-}
-
-static void _tc_waitq_finish_wait(struct tc_waitq *wq, struct waitq_ev *we)
-{
-	int f;
-	eventfd_t c;
-	int sync = 0;
-
-	if (atomic_sub_return(1, &we->nr_waiters) == 0) {
-		spin_lock(&sched.wevs_lock);
-		if (we->flags & WE_FLYING) {
-			LIST_REMOVE(we, we_chain);
-			we->flags &= ~WE_FLYING;
-			if (we->flags & WE_SYNC)
-				sync = 1;
-		}
-		f = !(we->flags & WE_REF_BY_WQ);
-		spin_unlock(&sched.wevs_lock);
-
-		if (wq) {
-			spin_lock(&wq->lock);
-			if (!wq->active) {
-				read(we->read_tcfd.fd, &c, sizeof(c));
-				/* Do not care if that read fails. We can finish_wait even if the
-				   we where never woken up... */
-				wq->active = we;
-				we->flags = WE_REF_BY_WQ;
-				f = 0;
-			}
-			spin_unlock(&wq->lock);
-		}
-
-		if (f)
-			tc_waitq_free_wait_ev(we, sync);
-	}
 }
 
 void tc_waitq_wait(struct tc_waitq *wq) /* do not use! */
 {
-	struct waitq_ev *we;
 	struct event e;
 
-	we = tc_waitq_prepare_to_wait(wq, &e);
+	tc_waitq_prepare_to_wait(wq, &e);
 	tc_scheduler();
-	tc_waitq_finish_wait(wq, &e, we);
+	tc_waitq_finish_wait(wq, &e);
 }
 
 void tc_waitq_wakeup(struct tc_waitq *wq)
 {
-	struct waitq_ev *we = NULL;
-	eventfd_t c = 1;
+	int wake = 0;
 
-	spin_lock(&wq->lock);
-	if (wq->active && atomic_read(&wq->active->nr_waiters)) {
-		we = wq->active;
-		wq->active = NULL;
-		spin_lock(&sched.wevs_lock);
-		LIST_INSERT_HEAD(&sched.wevs, we, we_chain);
-		we->flags = (we->flags & ~WE_REF_BY_WQ) | WE_FLYING;
-		spin_unlock(&sched.wevs_lock);
+	spin_lock(&wq->waiters.lock);
+	if (wq->nr_waiters) {
+		spin_lock(&sched.immediate.lock);
+		/* list concat. put all events from wq->waiters to sched.immediate */ /* todo */;
+		spin_unlock(&sched.immediate.lock);
+		wake = wq->nr_waiters;
+		wq->nr_waiters = 0;
 	}
-	spin_unlock(&wq->lock);
+	spin_unlock(&wq->waiters.lock);
 
-	if (we) {
-		if (write(we->read_tcfd.fd, &c, sizeof(c)) != sizeof(c))
-			msg_exit(1, "write() failed with: %m\n");
+	if (wake) {
+		if (wake == 1)
+			iwi_immediate();
+		else /* wake > 1 */
+			iwi_immediate(); /* todo wake all */
 	}
 }
 
 void tc_waitq_unregister(struct tc_waitq *wq)
 {
-	_tc_waitq_unregister(wq, 1);
-}
-
-static void _tc_waitq_unregister(struct tc_waitq *wq, int sync)
-{
-	struct waitq_ev *we;
-
-	spin_lock(&wq->lock);
-	we = wq->active;
-	if (we) {
-		if (atomic_read(&we->nr_waiters))
-			msg_exit(1, "there are still waiters in tc_waitq_unregister()");
-		wq->active = NULL;
-		tc_waitq_free_wait_ev(we, sync);
-	}
-	spin_unlock(&wq->lock);
+	if (wq->nr_waiters)
+		msg_exit(1, "there are still waiters in tc_waitq_unregister()");
 }
 
 void tc_signal_init(struct tc_signal *s)
@@ -1078,9 +970,8 @@ void tc_signal_init(struct tc_signal *s)
 	tc_waitq_init(&s->wq);
 }
 
-void tc_signal_enable(struct tc_signal *s)
+struct event *tc_signal_enable(struct tc_signal *s)
 {
-	struct waitq_ev *we;
 	struct event *e;
 
 	e = malloc(sizeof(struct event));
@@ -1089,21 +980,10 @@ void tc_signal_enable(struct tc_signal *s)
 
 	/* printf(" (%d) signal_enabled e=%p for %s\n", worker.nr, e, tc_current()->name); */
 
-	spin_lock(&s->wq.lock);
-	we = __tc_waitq_prepare_to_wait(&s->wq);
-	add_event_fd(e, EPOLLIN, EF_ALL_FREE, &we->read_tcfd);
-	spin_unlock(&s->wq.lock);
-}
+	e->flags = EF_ALL_FREE;
+	_tc_waitq_prepare_to_wait(&s->wq, e);
 
-static void _signal_gets_delivered1(struct tc_fd *tcfd)
-{
-	struct waitq_ev *we;
-
-	/* printf(" (%d) signal_gets_delivered e=%p\n", worker.nr, e); */
-
-	we = container_of(tcfd, struct waitq_ev, read_tcfd);
-
-	_tc_waitq_finish_wait(NULL, we);
+	return e;
 }
 
 static void _signal_gets_delivered2(struct event *e)
@@ -1111,71 +991,41 @@ static void _signal_gets_delivered2(struct event *e)
 	free(e);
 }
 
-
-enum tc_rv _signal_cancel(struct waitq_ev *we)
+void tc_signal_disable(struct tc_signal *s, struct event *e)
 {
-	struct event *e;
-	enum tc_rv rv;
+	/* Search s */
+	/* Search sched.immediate */
+	/* Search tc->pending */
+	/* todo: Remove! */
 
-	spin_lock(&we->read_tcfd.events.lock);
-	CIRCLEQ_FOREACH(e, &we->read_tcfd.events.events, e_chain) {
-		if (e->tc == tc_current()) {
-			rv = RV_OK;
-			remove_event(e, &we->read_tcfd.events);
-			free(e);
-			/* clear mask before arm ? */
-			arm(&we->read_tcfd);
-			we->flags |= WE_SYNC;
-			goto found;
-		}
-	}
-	rv = RV_THREAD_NA;
- found:
-	spin_unlock(&we->read_tcfd.events.lock);
-
-	return rv;
-}
-
-
-void tc_signal_disable(struct tc_signal *s)
-{
-	struct waitq_ev *we;
-	struct tc_waitq *wq = &s->wq;
-
-	spin_lock(&wq->lock);
-	we = wq->active;
-
-	if (!we) {
-		spin_unlock(&wq->lock);
-		return;
-	}
-
-	if (_signal_cancel(we) == RV_OK)
-		atomic_dec(&we->nr_waiters); /* Might leaves a we with waiters == 0 in wq->active */
-
-	spin_unlock(&wq->lock);
+	free(e);
 }
 
 static void signal_cancel_pending()
 {
-	struct waitq_ev *we;
+	struct event *e;
+	struct tc_thread *tc = tc_current();
+	/* Search my own run list */
+	/* Search for my in the immedate list */
 
-	while(1) {
-		spin_lock(&sched.wevs_lock);
-		LIST_FOREACH(we, &sched.wevs, we_chain) {
-			if (_signal_cancel(we) == RV_OK) {
-				if (atomic_sub_return(1, &we->nr_waiters) == 0) {
-					LIST_REMOVE(we, we_chain);
-					we->flags &= ~WE_FLYING;
-					break;
-				}
-			}
+	spin_lock(&sched.immediate.lock);
+	CIRCLEQ_FOREACH(e, &sched.immediate.events, e_chain) {
+		if (e->tc == tc && e->flags == EF_ALL_FREE) {
+			_remove_event(e, &sched.immediate);
+			free(e);
 		}
-		spin_unlock(&sched.wevs_lock);
-		if (!we)
-			break;
-		tc_waitq_free_wait_ev(we, 1);
 	}
+	spin_unlock(&sched.immediate.lock);
+
+	spin_lock(&tc->lock);
+	CIRCLEQ_FOREACH(e, &tc->pending, e_chain) {
+		if (e->flags == EF_ALL_FREE) {
+			CIRCLEQ_REMOVE(&tc->pending, e, e_chain);
+			atomic_dec(&e->tc->refcnt);
+			free(e);
+		}
+	}
+	spin_unlock(&tc->lock);
 }
 
 
