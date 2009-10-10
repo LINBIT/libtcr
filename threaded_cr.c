@@ -581,11 +581,16 @@ void tc_setup(void *data)
 {
 	struct setup_info *i = (struct setup_info *)data;
 	struct tc_thread *previous;
+	void (*func)(void *), *func_data;
 
 	previous = (struct tc_thread *)cr_uptr(cr_caller());
 	spin_unlock(&previous->running);
 
-	i->func(i->data);
+	func_data = i->data;
+	func = i->func;
+	free(i);
+
+	func(func_data);
 
 	tc_die();
 }
@@ -593,20 +598,23 @@ void tc_setup(void *data)
 struct tc_thread *tc_thread_new(void (*func)(void *), void *data, char* name)
 {
 	struct tc_thread *tc;
-	struct setup_info i;
+	struct setup_info *i;
 
-	i.func = func;
-	i.data = data;
+	i = malloc(sizeof(struct setup_info));
+	if (!i)
+		goto fail1;
 
 	tc = malloc(sizeof(struct tc_thread));
 	if (!tc)
-		return NULL;
+		goto fail2;
 
-	tc->cr = cr_create(tc_setup, &i, DEFAULT_STACK_SIZE);
-	if (!tc->cr) {
-		free(tc);
-		return NULL;
-	}
+	tc->cr = cr_create(tc_setup, i, DEFAULT_STACK_SIZE);
+	if (!tc->cr)
+		goto fail3;
+
+	i->func = func;
+	i->data = data;
+
 	cr_set_uptr(tc->cr, (void *)tc);
 	tc->name = name;
 	tc_waitq_init(&tc->exit_waiters);
@@ -623,6 +631,13 @@ struct tc_thread *tc_thread_new(void (*func)(void *), void *data, char* name)
 	iwi_immediate();
 
 	return tc;
+
+fail3:
+	free(tc);
+fail2:
+	free(i);
+fail1:
+	return NULL;
 }
 
 void tc_threads_new(struct tc_threads *threads, void (*func)(void *), void *data, char* name)
