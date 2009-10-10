@@ -62,7 +62,7 @@ enum waitq_ev_flags {
 
 struct waitq_ev {
 	LIST_ENTRY(waitq_ev) we_chain;
-	atomic_t waiters;   /* Number of tc_threads sleeping on the wq */
+	atomic_t nr_waiters;   /* Number of tc_threads sleeping on the wq */
 	unsigned int flags;
 	struct tc_fd read_tcfd;
 };
@@ -930,12 +930,12 @@ struct waitq_ev *__tc_waitq_prepare_to_wait(struct tc_waitq *wq)
 			msg_exit(1, "eventfd() failed with: %m\n");
 
 		_tc_fd_init(&we->read_tcfd, ev_fd);
-		atomic_set(&we->waiters, 0);
+		atomic_set(&we->nr_waiters, 0);
 		we->flags = WE_REF_BY_WQ;
 		wq->active = we;
 	}
 	we = wq->active;
-	atomic_inc(&we->waiters);
+	atomic_inc(&we->nr_waiters);
 
 	return we;
 }
@@ -992,7 +992,7 @@ static void _tc_waitq_finish_wait(struct tc_waitq *wq, struct waitq_ev *we)
 	eventfd_t c;
 	int sync = 0;
 
-	if (atomic_sub_return(1, &we->waiters) == 0) {
+	if (atomic_sub_return(1, &we->nr_waiters) == 0) {
 		spin_lock(&sched.wevs_lock);
 		if (we->flags & WE_FLYING) {
 			LIST_REMOVE(we, we_chain);
@@ -1037,7 +1037,7 @@ void tc_waitq_wakeup(struct tc_waitq *wq)
 	eventfd_t c = 1;
 
 	spin_lock(&wq->lock);
-	if (wq->active && atomic_read(&wq->active->waiters)) {
+	if (wq->active && atomic_read(&wq->active->nr_waiters)) {
 		we = wq->active;
 		wq->active = NULL;
 		spin_lock(&sched.wevs_lock);
@@ -1065,7 +1065,7 @@ static void _tc_waitq_unregister(struct tc_waitq *wq, int sync)
 	spin_lock(&wq->lock);
 	we = wq->active;
 	if (we) {
-		if (atomic_read(&we->waiters))
+		if (atomic_read(&we->nr_waiters))
 			msg_exit(1, "there are still waiters in tc_waitq_unregister()");
 		wq->active = NULL;
 		tc_waitq_free_wait_ev(we, sync);
@@ -1151,7 +1151,7 @@ void tc_signal_disable(struct tc_signal *s)
 	}
 
 	if (_signal_cancel(we) == RV_OK)
-		atomic_dec(&we->waiters); /* Might leaves a we with waiters == 0 in wq->active */
+		atomic_dec(&we->nr_waiters); /* Might leaves a we with waiters == 0 in wq->active */
 
 	spin_unlock(&wq->lock);
 }
@@ -1164,7 +1164,7 @@ static void signal_cancel_pending()
 		spin_lock(&sched.wevs_lock);
 		LIST_FOREACH(we, &sched.wevs, we_chain) {
 			if (_signal_cancel(we) == RV_OK) {
-				if (atomic_sub_return(1, &we->waiters) == 0) {
+				if (atomic_sub_return(1, &we->nr_waiters) == 0) {
 					LIST_REMOVE(we, we_chain);
 					we->flags &= ~WE_FLYING;
 					break;
