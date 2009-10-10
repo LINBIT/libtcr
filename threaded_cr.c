@@ -107,9 +107,9 @@ enum inter_worker_interrupts {
 };
 
 struct scheduler {
-	spinlock_t lock;           /* protects the threads and the immediate lists */
+	spinlock_t lock;           /* protects the threads list */
 	struct tc_threads threads;
-	struct events immediate;
+	struct event_list immediate;
 	struct waitq_evs wevs;     /* List of 'flying' signals and waitq wakeup events */
 	spinlock_t wevs_lock;      /* protects the wevs list */
 	int nr_of_workers;
@@ -182,7 +182,7 @@ static void arm(struct tc_fd *tcfd)
 {
 	struct epoll_event epe;
 
-	epe.events = calc_epoll_event_mask(&tcfd->events);
+	epe.events = calc_epoll_event_mask(&tcfd->events.events);
 	if (epe.events == tcfd->ep_events)
 		return;
 
@@ -193,43 +193,54 @@ static void arm(struct tc_fd *tcfd)
 		msg_exit(1, "epoll_ctl failed with %m\n");
 }
 
-/* must_hold tcfd->lock */
-static inline void remove_event(struct event *e, struct events *evs)
+static void event_list_init(struct event_list *el)
 {
-	CIRCLEQ_REMOVE(evs, e, e_chain);
+	CIRCLEQ_INIT(&el->events);
+	spin_lock_init(&el->lock);
+}
+
+/* must_hold el->lock */
+static void remove_event(struct event *e, struct event_list *el)
+{
+	CIRCLEQ_REMOVE(&el->events, e, e_chain);
 	atomic_dec(&e->tc->refcnt);
 }
 
-void add_event_fd(struct event *e, __uint32_t ep_events, enum tc_event_flag flags, struct tc_fd *tcfd)
+static void add_event(struct event *e, struct event_list *el)
 {
 	atomic_inc(&tc_current()->refcnt);
 	e->tc = tc_current();
+
+	spin_lock(&el->lock);
+	CIRCLEQ_INSERT_HEAD(&el->events, e, e_chain);
+	spin_unlock(&el->lock);
+}
+
+
+void add_event_fd(struct event *e, __uint32_t ep_events, enum tc_event_flag flags, struct tc_fd *tcfd)
+{
  	e->ep_events = ep_events;
  	e->flags = flags;
 
-	spin_lock(&tcfd->lock);
-	CIRCLEQ_INSERT_HEAD(&tcfd->events, e, e_chain);
+	add_event(e, &tcfd->events);
+	spin_lock(&tcfd->events.lock);
 	arm(tcfd);
-	spin_unlock(&tcfd->lock);
+	spin_unlock(&tcfd->events.lock);
 }
 
 static void add_event_cr(struct event *e, __uint32_t ep_events, enum tc_event_flag flags, struct tc_thread *tc)
 {
-	atomic_inc(&tc->refcnt);
-	e->tc = tc;
  	e->ep_events = ep_events;
  	e->flags = flags;
 
-	spin_lock(&sched.lock);
-	CIRCLEQ_INSERT_TAIL(&sched.immediate, e, e_chain);
-	spin_unlock(&sched.lock);
+	add_event(e, &sched.immediate);
 }
 
 void remove_event_fd(struct event *e, struct tc_fd *tcfd)
 {
-	spin_lock(&tcfd->lock);
+	spin_lock(&tcfd->events.lock);
 	remove_event(e, &tcfd->events);
-	spin_unlock(&tcfd->lock);
+	spin_unlock(&tcfd->events.lock);
 }
 
 void tc_thread_free(struct tc_thread *tc)
@@ -282,8 +293,8 @@ static int run_immediate(struct tc_thread *not_for_tc)
 {
 	struct event *e;
 
-	spin_lock(&sched.lock);
-	CIRCLEQ_FOREACH(e, &sched.immediate, e_chain) {
+	spin_lock(&sched.immediate.lock);
+	CIRCLEQ_FOREACH(e, &sched.immediate.events, e_chain) {
 		worker.woken_by_event = e;
 		worker.woken_by_tcfd  = NULL;
 		if (e->tc != not_for_tc) {
@@ -296,14 +307,14 @@ static int run_immediate(struct tc_thread *not_for_tc)
 			case EF_EXITING:
 				tc_thread_free(e->tc);
 				spin_lock(&sched.lock);
-				e = CIRCLEQ_FIRST(&sched.immediate);
+				e = CIRCLEQ_FIRST(&sched.immediate.events);
 				continue;
 			default:
 				msg_exit(1, "Wrong e->flags in immediate list\n");
 			}
 		}
 	}
-	spin_unlock(&sched.lock);
+	spin_unlock(&sched.immediate.lock);
 
 	return 0;
 }
@@ -399,21 +410,21 @@ static void scheduler_part2()
 
 		tcfd = (struct tc_fd *)epe.data.ptr;
 
-		spin_lock(&tcfd->lock);
+		spin_lock(&tcfd->events.lock);
 		tcfd->ep_events = -1; /* recalc them */
 
-		e = matching_event(epe.events, &tcfd->events);
+		e = matching_event(epe.events, &tcfd->events.events);
 		if (!e) {
 			/* That can happen if the event_fd of a signal wakes us up just
 			   after _signal_cancel was called */
-			spin_unlock(&tcfd->lock);
+			spin_unlock(&tcfd->events.lock);
 			continue;
 		}
 
 		tc = e->tc;
 		remove_event(e, &tcfd->events);
 
-		spin_unlock(&tcfd->lock);
+		spin_unlock(&tcfd->events.lock);
 
 		if (e->flags == EF_ALL_FREE) {
 			_signal_gets_delivered1(tcfd);
@@ -475,7 +486,7 @@ void tc_init()
 {
 	struct epoll_event epe;
 
-	CIRCLEQ_INIT(&sched.immediate);
+	event_list_init(&sched.immediate);
 	LIST_INIT(&sched.threads);
 	LIST_INIT(&sched.wevs);
 	spin_lock_init(&sched.lock);
@@ -545,9 +556,9 @@ void tc_run(void (*func)(void *), void *data, char* name, int nr_of_workers)
 void tc_rearm()
 {
 	if (worker.woken_by_tcfd) {
-		spin_lock(&worker.woken_by_tcfd->lock);
+		spin_lock(&worker.woken_by_tcfd->events.lock);
 		arm(worker.woken_by_tcfd);
-		spin_unlock(&worker.woken_by_tcfd->lock);
+		spin_unlock(&worker.woken_by_tcfd->events.lock);
 	}
 }
 
@@ -696,7 +707,7 @@ static void _tc_fd_init(struct tc_fd *tcfd, int fd)
 	int arg;
 
 	tcfd->fd = fd;
-	CIRCLEQ_INIT(&tcfd->events);
+	event_list_init(&tcfd->events);
 	tcfd->ep_events = 0;
 
 	/* The fd has to be non blocking */
@@ -711,8 +722,6 @@ static void _tc_fd_init(struct tc_fd *tcfd, int fd)
 
 	epe.data.ptr = tcfd;
 	epe.events = 0;
-
-	spin_lock_init(&tcfd->lock);
 
 	if (epoll_ctl(sched.efd, EPOLL_CTL_ADD, fd, &epe))
 		msg_exit(1, "epoll_ctl failed with %m\n");
@@ -735,10 +744,10 @@ static void _tc_fd_unregister(struct tc_fd *tcfd, int sync)
 {
 	struct epoll_event epe = { };
 
-	spin_lock(&tcfd->lock);
-	if (!CIRCLEQ_EMPTY(&tcfd->events))
+	spin_lock(&tcfd->events.lock);
+	if (!CIRCLEQ_EMPTY(&tcfd->events.events))
 		msg_exit(1, "event list not empty in tc_unregister_fd()\n");
-	spin_unlock(&tcfd->lock);
+	spin_unlock(&tcfd->events.lock);
 
 	if (epoll_ctl(sched.efd, EPOLL_CTL_DEL, tcfd->fd, &epe))
 		msg_exit(1, "epoll_ctl failed with %m\n");
@@ -1108,8 +1117,8 @@ enum tc_rv _signal_cancel(struct waitq_ev *we)
 	struct event *e;
 	enum tc_rv rv;
 
-	spin_lock(&we->read_tcfd.lock);
-	CIRCLEQ_FOREACH(e, &we->read_tcfd.events, e_chain) {
+	spin_lock(&we->read_tcfd.events.lock);
+	CIRCLEQ_FOREACH(e, &we->read_tcfd.events.events, e_chain) {
 		if (e->tc == tc_current()) {
 			rv = RV_OK;
 			remove_event(e, &we->read_tcfd.events);
@@ -1122,7 +1131,7 @@ enum tc_rv _signal_cancel(struct waitq_ev *we)
 	}
 	rv = RV_THREAD_NA;
  found:
-	spin_unlock(&we->read_tcfd.lock);
+	spin_unlock(&we->read_tcfd.events.lock);
 
 	return rv;
 }

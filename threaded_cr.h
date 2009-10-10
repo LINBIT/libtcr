@@ -42,17 +42,21 @@ struct event {
 		struct tc_thread *tc; /* when it is attached to an tc_fd */
 		struct tc_fd *tcfd;   /* when it is attaache to an tc_thread */
 	};
-	__uint32_t ep_events; /* EPOLLIN, EPOLLOUT, ... and EF_IMMEDIATE*/
+	__uint32_t ep_events; /* EPOLLIN, EPOLLOUT, ... */
 	enum tc_event_flag flags;
 };
 
 CIRCLEQ_HEAD(events, event);
 
-struct tc_fd {
-	int fd;
+struct event_list {
 	struct events events;
 	spinlock_t lock; /* protects the events list */
+};
+
+struct tc_fd {
+	int fd;
 	__uint32_t ep_events;  /* current mask */
+	struct event_list events;
 };
 
 struct tc_mutex {
