@@ -61,7 +61,7 @@ enum waitq_ev_flags {
 };
 
 struct waitq_ev {
-	LIST_ENTRY(waitq_ev) chain;
+	LIST_ENTRY(waitq_ev) we_chain;
 	atomic_t waiters;   /* Number of tc_threads sleeping on the wq */
 	unsigned int flags;
 	struct tc_fd read_tcfd;
@@ -975,7 +975,7 @@ static void _tc_waitq_finish_wait(struct tc_waitq *wq, struct waitq_ev *we)
 	if (atomic_sub_return(1, &we->waiters) == 0) {
 		spin_lock(&sched.wevs_lock);
 		if (we->flags & WE_FLYING) {
-			LIST_REMOVE(we, chain);
+			LIST_REMOVE(we, we_chain);
 			we->flags &= ~WE_FLYING;
 			if (we->flags & WE_SYNC)
 				sync = 1;
@@ -1021,7 +1021,7 @@ void tc_waitq_wakeup(struct tc_waitq *wq)
 		we = wq->active;
 		wq->active = NULL;
 		spin_lock(&sched.wevs_lock);
-		LIST_INSERT_HEAD(&sched.wevs, we, chain);
+		LIST_INSERT_HEAD(&sched.wevs, we, we_chain);
 		we->flags = (we->flags & ~WE_REF_BY_WQ) | WE_FLYING;
 		spin_unlock(&sched.wevs_lock);
 	}
@@ -1142,10 +1142,10 @@ static void signal_cancel_pending()
 
 	while(1) {
 		spin_lock(&sched.wevs_lock);
-		LIST_FOREACH(we, &sched.wevs, chain) {
+		LIST_FOREACH(we, &sched.wevs, we_chain) {
 			if (_signal_cancel(we) == RV_OK) {
 				if (atomic_sub_return(1, &we->waiters) == 0) {
-					LIST_REMOVE(we, chain);
+					LIST_REMOVE(we, we_chain);
 					we->flags &= ~WE_FLYING;
 					break;
 				}
