@@ -76,7 +76,7 @@ enum thread_flags {
 
 struct tc_thread {
 	char *name;		/* Leafe that first, for debugging spinlocks */
-	LIST_ENTRY(tc_thread) chain;         /* list of all threads*/
+	LIST_ENTRY(tc_thread) tc_chain;      /* list of all threads*/
 	LIST_ENTRY(tc_thread) threads_chain; /* list of thrads created with one call to tc_threads_new() */
 	struct coroutine *cr;
 	struct tc_waitq exit_waiters;
@@ -444,7 +444,7 @@ void tc_worker_init(int i)
 	worker.main_thread.flags = TF_RUNNING;
 	LIST_INIT(&worker.main_thread.pending);
 	spin_lock_init(&worker.main_thread.lock);
-	/* LIST_INSERT_HEAD(&sched.threads, &worker.main_thread, chain); */
+	/* LIST_INSERT_HEAD(&sched.threads, &worker.main_thread, tc_chain); */
 
 	asprintf(&worker.sched_p2.name, "sched_%d", i);
 	worker.sched_p2.cr = cr_create(scheduler_part2, NULL, DEFAULT_STACK_SIZE);
@@ -560,7 +560,7 @@ void tc_die()
 	/* printf(" (%d) exiting: %s\n", worker.nr, tc->name); */
 
 	spin_lock(&sched.lock);
-	LIST_REMOVE(tc, chain);
+	LIST_REMOVE(tc, tc_chain);
 	if (tc->flags & TF_THREADS)
 		LIST_REMOVE(tc, threads_chain);
 	spin_unlock(&sched.lock);
@@ -629,7 +629,7 @@ struct tc_thread *tc_thread_new(void (*func)(void *), void *data, char* name)
 	spin_lock_init(&tc->lock);
 
 	spin_lock(&sched.lock);
-	LIST_INSERT_HEAD(&sched.threads, tc, chain);
+	LIST_INSERT_HEAD(&sched.threads, tc, tc_chain);
 	spin_unlock(&sched.lock);
 	add_event_cr(&tc->e, 0, EF_READY, tc);           /* removed in the tc_scheduler */
 	iwi_immediate();
@@ -857,7 +857,7 @@ static enum tc_rv _thread_valid(struct tc_thread *look_for)
 {
 	struct tc_thread *tc;
 
-	LIST_FOREACH(tc, &sched.threads, chain) {
+	LIST_FOREACH(tc, &sched.threads, tc_chain) {
 		if (tc == look_for)
 			return RV_OK;
 	}
