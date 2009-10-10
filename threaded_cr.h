@@ -87,6 +87,7 @@ void tc_run(void (*func)(void *), void *data, char* name, int nr_of_workers);
 void tc_init();
 void tc_worker_init(int i);
 void tc_scheduler();
+void tc_sched_yield();
 
 /* Threads
    A tc_thread is a very light object: 4K stack. You can create a thread,

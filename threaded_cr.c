@@ -221,7 +221,7 @@ static void add_event_cr(struct event *e, __uint32_t ep_events, enum tc_event_fl
  	e->flags = flags;
 
 	spin_lock(&sched.lock);
-	CIRCLEQ_INSERT_HEAD(&sched.immediate, e, e_chain);
+	CIRCLEQ_INSERT_TAIL(&sched.immediate, e, e_chain);
 	spin_unlock(&sched.lock);
 }
 
@@ -326,6 +326,19 @@ static void iwi_immediate()
 
 	if (write(sched.immediate_fd, &c, sizeof(c)) != sizeof(c))
 		msg_exit(1, "write() failed with: %m\n");
+}
+
+void tc_sched_yield()
+{
+	struct tc_thread *tc = tc_current();
+	struct event e;
+
+	add_event_cr(&e, 0, EF_READY, tc); /* use tc->e ? */
+	if (!run_immediate(tc)) {
+		spin_lock(&sched.lock);
+		remove_event(&e, &sched.immediate);
+		spin_unlock(&sched.lock);
+	}
 }
 
 void tc_scheduler(void)
