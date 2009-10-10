@@ -159,7 +159,7 @@ static __uint32_t calc_epoll_event_mask(struct events *es)
 	__uint32_t em = 0;
 
 	struct event *e;
-	LIST_FOREACH(e, es, chain) {
+	LIST_FOREACH(e, es, e_chain) {
 		em |= e->ep_events | (e->flags == EF_ONE ? EPOLLONESHOT : 0);
 	}
 
@@ -170,7 +170,7 @@ static __uint32_t calc_epoll_event_mask(struct events *es)
 static struct event *matching_event(__uint32_t em, struct events *es)
 {
 	struct event *e;
-	LIST_FOREACH(e, es, chain) {
+	LIST_FOREACH(e, es, e_chain) {
 		if (em & e->ep_events)
 			return e;
 	}
@@ -196,7 +196,7 @@ static void arm(struct tc_fd *tcfd)
 /* must_hold tcfd->lock */
 static inline void remove_event(struct event *e)
 {
-	LIST_REMOVE(e, chain);
+	LIST_REMOVE(e, e_chain);
 	atomic_dec(&e->tc->refcnt);
 }
 
@@ -208,7 +208,7 @@ void add_event_fd(struct event *e, __uint32_t ep_events, enum tc_event_flag flag
  	e->flags = flags;
 
 	spin_lock(&tcfd->lock);
-	LIST_INSERT_HEAD(&tcfd->events, e, chain);
+	LIST_INSERT_HEAD(&tcfd->events, e, e_chain);
 	arm(tcfd);
 	spin_unlock(&tcfd->lock);
 }
@@ -221,7 +221,7 @@ static void add_event_cr(struct event *e, __uint32_t ep_events, enum tc_event_fl
  	e->flags = flags;
 
 	spin_lock(&sched.lock);
-	LIST_INSERT_HEAD(&sched.immediate, e, chain);
+	LIST_INSERT_HEAD(&sched.immediate, e, e_chain);
 	spin_unlock(&sched.lock);
 }
 
@@ -303,7 +303,7 @@ static int run_immediate(struct tc_thread *not_for_tc)
 				msg_exit(1, "Wrong e->flags in immediate list\n");
 			}
 		}
-		e = LIST_NEXT(e, chain);
+		e = LIST_NEXT(e, e_chain);
 	}
 	spin_unlock(&sched.lock);
 
@@ -338,7 +338,7 @@ void tc_scheduler(void)
 	spin_lock(&tc->lock);
 	e = LIST_FIRST(&tc->pending);
 	if (e) {
-		LIST_REMOVE(e, chain);
+		LIST_REMOVE(e, e_chain);
 		spin_unlock(&tc->lock);
 		if (e->flags == EF_ALL_FREE)
 			_signal_gets_delivered2(e);
@@ -412,7 +412,7 @@ static void scheduler_part2()
 		spin_lock(&tc->lock);
 		if (tc->flags & TF_RUNNING) {
 			e->tcfd = tcfd;
-			LIST_INSERT_HEAD(&tc->pending, e, chain);
+			LIST_INSERT_HEAD(&tc->pending, e, e_chain);
 			spin_unlock(&tc->lock);
 			continue;
 		}
@@ -1098,7 +1098,7 @@ enum tc_rv _signal_cancel(struct waitq_ev *we)
 	enum tc_rv rv;
 
 	spin_lock(&we->read_tcfd.lock);
-	LIST_FOREACH(e, &we->read_tcfd.events, chain) {
+	LIST_FOREACH(e, &we->read_tcfd.events, e_chain) {
 		if (e->tc == tc_current()) {
 			rv = RV_OK;
 			remove_event(e);

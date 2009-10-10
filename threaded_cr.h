@@ -37,7 +37,7 @@ enum tc_rv {
 };
 
 struct event {
-	LIST_ENTRY(event) chain;
+	LIST_ENTRY(event) e_chain;
 	union {
 		struct tc_thread *tc; /* when it is attached to an tc_fd */
 		struct tc_fd *tcfd;   /* when it is attaache to an tc_thread */
