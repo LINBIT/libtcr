@@ -37,7 +37,7 @@ enum tc_rv {
 };
 
 struct event {
-	LIST_ENTRY(event) e_chain;
+	CIRCLEQ_ENTRY(event) e_chain;
 	union {
 		struct tc_thread *tc; /* when it is attached to an tc_fd */
 		struct tc_fd *tcfd;   /* when it is attaache to an tc_thread */
@@ -46,7 +46,7 @@ struct event {
 	enum tc_event_flag flags;
 };
 
-LIST_HEAD(events, event);
+CIRCLEQ_HEAD(events, event);
 
 struct tc_fd {
 	int fd;

@@ -159,7 +159,7 @@ static __uint32_t calc_epoll_event_mask(struct events *es)
 	__uint32_t em = 0;
 
 	struct event *e;
-	LIST_FOREACH(e, es, e_chain) {
+	CIRCLEQ_FOREACH(e, es, e_chain) {
 		em |= e->ep_events | (e->flags == EF_ONE ? EPOLLONESHOT : 0);
 	}
 
@@ -170,7 +170,7 @@ static __uint32_t calc_epoll_event_mask(struct events *es)
 static struct event *matching_event(__uint32_t em, struct events *es)
 {
 	struct event *e;
-	LIST_FOREACH(e, es, e_chain) {
+	CIRCLEQ_FOREACH(e, es, e_chain) {
 		if (em & e->ep_events)
 			return e;
 	}
@@ -194,9 +194,9 @@ static void arm(struct tc_fd *tcfd)
 }
 
 /* must_hold tcfd->lock */
-static inline void remove_event(struct event *e)
+static inline void remove_event(struct event *e, struct events *evs)
 {
-	LIST_REMOVE(e, e_chain);
+	CIRCLEQ_REMOVE(evs, e, e_chain);
 	atomic_dec(&e->tc->refcnt);
 }
 
@@ -208,7 +208,7 @@ void add_event_fd(struct event *e, __uint32_t ep_events, enum tc_event_flag flag
  	e->flags = flags;
 
 	spin_lock(&tcfd->lock);
-	LIST_INSERT_HEAD(&tcfd->events, e, e_chain);
+	CIRCLEQ_INSERT_HEAD(&tcfd->events, e, e_chain);
 	arm(tcfd);
 	spin_unlock(&tcfd->lock);
 }
@@ -221,14 +221,14 @@ static void add_event_cr(struct event *e, __uint32_t ep_events, enum tc_event_fl
  	e->flags = flags;
 
 	spin_lock(&sched.lock);
-	LIST_INSERT_HEAD(&sched.immediate, e, e_chain);
+	CIRCLEQ_INSERT_HEAD(&sched.immediate, e, e_chain);
 	spin_unlock(&sched.lock);
 }
 
 void remove_event_fd(struct event *e, struct tc_fd *tcfd)
 {
 	spin_lock(&tcfd->lock);
-	remove_event(e);
+	remove_event(e, &tcfd->events);
 	spin_unlock(&tcfd->lock);
 }
 
@@ -283,12 +283,11 @@ static int run_immediate(struct tc_thread *not_for_tc)
 	struct event *e;
 
 	spin_lock(&sched.lock);
-	e = LIST_FIRST(&sched.immediate);
-	while (e) {
+	CIRCLEQ_FOREACH(e, &sched.immediate, e_chain) {
 		worker.woken_by_event = e;
 		worker.woken_by_tcfd  = NULL;
 		if (e->tc != not_for_tc) {
-			remove_event(e);
+			remove_event(e, &sched.immediate);
 			spin_unlock(&sched.lock);
 			switch (e->flags) {
 			case EF_READY:
@@ -297,13 +296,12 @@ static int run_immediate(struct tc_thread *not_for_tc)
 			case EF_EXITING:
 				tc_thread_free(e->tc);
 				spin_lock(&sched.lock);
-				e = LIST_FIRST(&sched.immediate);
+				e = CIRCLEQ_FIRST(&sched.immediate);
 				continue;
 			default:
 				msg_exit(1, "Wrong e->flags in immediate list\n");
 			}
 		}
-		e = LIST_NEXT(e, e_chain);
 	}
 	spin_unlock(&sched.lock);
 
@@ -336,9 +334,9 @@ void tc_scheduler(void)
 	struct tc_thread *tc = tc_current();
 
 	spin_lock(&tc->lock);
-	e = LIST_FIRST(&tc->pending);
-	if (e) {
-		LIST_REMOVE(e, e_chain);
+	if (!CIRCLEQ_EMPTY(&tc->pending)) {
+		e = CIRCLEQ_FIRST(&tc->pending);
+		CIRCLEQ_REMOVE(&tc->pending, e, e_chain);
 		spin_unlock(&tc->lock);
 		if (e->flags == EF_ALL_FREE)
 			_signal_gets_delivered2(e);
@@ -400,7 +398,7 @@ static void scheduler_part2()
 		}
 
 		tc = e->tc;
-		remove_event(e);
+		remove_event(e, &tcfd->events);
 
 		spin_unlock(&tcfd->lock);
 
@@ -412,7 +410,7 @@ static void scheduler_part2()
 		spin_lock(&tc->lock);
 		if (tc->flags & TF_RUNNING) {
 			e->tcfd = tcfd;
-			LIST_INSERT_HEAD(&tc->pending, e, e_chain);
+			CIRCLEQ_INSERT_HEAD(&tc->pending, e, e_chain);
 			spin_unlock(&tc->lock);
 			continue;
 		}
@@ -442,7 +440,7 @@ void tc_worker_init(int i)
 	spin_lock_init(&worker.main_thread.running);
 	spin_lock(&worker.main_thread.running); /* runs currently */
 	worker.main_thread.flags = TF_RUNNING;
-	LIST_INIT(&worker.main_thread.pending);
+	CIRCLEQ_INIT(&worker.main_thread.pending);
 	spin_lock_init(&worker.main_thread.lock);
 	/* LIST_INSERT_HEAD(&sched.threads, &worker.main_thread, tc_chain); */
 
@@ -456,7 +454,7 @@ void tc_worker_init(int i)
 	atomic_set(&worker.sched_p2.refcnt, 0);
 	spin_lock_init(&worker.sched_p2.running);
 	worker.sched_p2.flags = 0;
-	LIST_INIT(&worker.sched_p2.pending);
+	CIRCLEQ_INIT(&worker.sched_p2.pending);
 	spin_lock_init(&worker.sched_p2.lock);
 }
 
@@ -464,7 +462,7 @@ void tc_init()
 {
 	struct epoll_event epe;
 
-	LIST_INIT(&sched.immediate);
+	CIRCLEQ_INIT(&sched.immediate);
 	LIST_INIT(&sched.threads);
 	LIST_INIT(&sched.wevs);
 	spin_lock_init(&sched.lock);
@@ -625,7 +623,7 @@ struct tc_thread *tc_thread_new(void (*func)(void *), void *data, char* name)
 	atomic_set(&tc->refcnt, 0);
 	spin_lock_init(&tc->running);
 	tc->flags = 0;
-	LIST_INIT(&tc->pending);
+	CIRCLEQ_INIT(&tc->pending);
 	spin_lock_init(&tc->lock);
 
 	spin_lock(&sched.lock);
@@ -685,7 +683,7 @@ static void _tc_fd_init(struct tc_fd *tcfd, int fd)
 	int arg;
 
 	tcfd->fd = fd;
-	LIST_INIT(&tcfd->events);
+	CIRCLEQ_INIT(&tcfd->events);
 	tcfd->ep_events = 0;
 
 	/* The fd has to be non blocking */
@@ -725,7 +723,7 @@ static void _tc_fd_unregister(struct tc_fd *tcfd, int sync)
 	struct epoll_event epe = { };
 
 	spin_lock(&tcfd->lock);
-	if (!LIST_EMPTY(&tcfd->events))
+	if (!CIRCLEQ_EMPTY(&tcfd->events))
 		msg_exit(1, "event list not empty in tc_unregister_fd()\n");
 	spin_unlock(&tcfd->lock);
 
@@ -1098,10 +1096,10 @@ enum tc_rv _signal_cancel(struct waitq_ev *we)
 	enum tc_rv rv;
 
 	spin_lock(&we->read_tcfd.lock);
-	LIST_FOREACH(e, &we->read_tcfd.events, e_chain) {
+	CIRCLEQ_FOREACH(e, &we->read_tcfd.events, e_chain) {
 		if (e->tc == tc_current()) {
 			rv = RV_OK;
-			remove_event(e);
+			remove_event(e, &we->read_tcfd.events);
 			free(e);
 			/* clear mask before arm ? */
 			arm(&we->read_tcfd);
