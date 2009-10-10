@@ -277,7 +277,7 @@ static void arm_immediate(int op)
 		msg_exit(1, "epoll_ctl failed with %m\n");
 }
 
-static void run_immediate(struct tc_thread *not_for_tc)
+static int run_immediate(struct tc_thread *not_for_tc)
 {
 	struct event *e;
 
@@ -292,7 +292,7 @@ static void run_immediate(struct tc_thread *not_for_tc)
 			switch (e->flags) {
 			case EF_READY:
 				switch_to(e->tc);
-				return;
+				return 1; /* must cause tc_schedulre() to return! */
 			case EF_EXITING:
 				tc_thread_free(e->tc);
 				spin_lock(&sched.lock);
@@ -305,6 +305,8 @@ static void run_immediate(struct tc_thread *not_for_tc)
 		e = LIST_NEXT(e, chain);
 	}
 	spin_unlock(&sched.lock);
+
+	return 0;
 }
 
 static void process_immediate()
@@ -346,7 +348,8 @@ void tc_scheduler(void)
 	tc->flags &= ~TF_RUNNING;
 	spin_unlock(&tc->lock);
 
-	run_immediate(tc);
+	if (run_immediate(tc))
+		return;
 
 	switch_to(&worker.sched_p2); /* always -> scheduler_part2()*/
 }
