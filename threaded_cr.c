@@ -138,7 +138,7 @@ static __uint32_t calc_epoll_event_mask(struct events *es)
 
 	struct event *e;
 	CIRCLEQ_FOREACH(e, es, e_chain) {
-		em |= e->ep_events | (e->flags == EF_ONE ? EPOLLONESHOT : 0);
+		em |= e->ep_events;
 	}
 
 	return em;
@@ -184,11 +184,11 @@ static void _remove_event(struct event *e, struct event_list *el)
 	atomic_dec(&e->tc->refcnt);
 }
 
-static void remove_event(struct event *e, struct event_list *el)
+static void remove_event(struct event *e)
 {
-	spin_lock(&el->lock);
-	_remove_event(e, el);
-	spin_unlock(&el->lock);
+	spin_lock(&e->el->lock);
+	_remove_event(e, e->el);
+	spin_unlock(&e->el->lock);
 }
 
 /* must_hold el->lock */
@@ -196,6 +196,7 @@ static void _add_event(struct event *e, struct event_list *el)
 {
 	atomic_inc(&tc_current()->refcnt);
 	e->tc = tc_current();
+	e->el = el;
 
 	CIRCLEQ_INSERT_HEAD(&el->events, e, e_chain);
 }
@@ -229,7 +230,7 @@ static void add_event_cr(struct event *e, __uint32_t ep_events, enum tc_event_fl
 
 void remove_event_fd(struct event *e, struct tc_fd *tcfd)
 {
-	remove_event(e, &tcfd->events);
+	remove_event(e);
 }
 
 void tc_thread_free(struct tc_thread *tc)
@@ -351,7 +352,7 @@ void tc_scheduler(void)
 		e = CIRCLEQ_FIRST(&tc->pending.events);
 		CIRCLEQ_REMOVE(&tc->pending.events, e, e_chain);
 		spin_unlock(&tc->pending.lock);
-		if (e->flags == EF_ALL_FREE)
+		if (e->flags == EF_SIGNAL)
 			_signal_gets_delivered2(e);
 		worker.woken_by_tcfd  = e->tcfd;
 		worker.woken_by_event = e;
@@ -415,7 +416,7 @@ static void scheduler_part2()
 
 		spin_unlock(&tcfd->events.lock);
 
-		if (e->flags == EF_ALL_FREE)
+		if (e->flags == EF_SIGNAL)
 			tcfd = NULL; /* Do not expose the tcfd in case it was a signal. */
 
 		spin_lock(&tc->pending.lock);
@@ -428,7 +429,7 @@ static void scheduler_part2()
 		tc->flags |= TF_RUNNING;
 		spin_unlock(&tc->pending.lock);
 
-		if (e->flags == EF_ALL_FREE)
+		if (e->flags == EF_SIGNAL)
 			_signal_gets_delivered2(e);
 
 		worker.woken_by_event = e;
@@ -549,7 +550,7 @@ enum tc_rv tc_wait_fd(__uint32_t ep_events, struct tc_fd *tcfd)
 {
 	struct event e;
 
-	add_event_fd(&e, ep_events, EF_ONE, tcfd);
+	add_event_fd(&e, ep_events | EPOLLONESHOT, EF_READY, tcfd);
 	tc_scheduler();
 	if (worker.woken_by_event != &e) {
 		remove_event_fd(&e, tcfd);
@@ -916,7 +917,7 @@ int tc_waitq_finish_wait(struct tc_waitq *wq, struct event *e)
 	int r = (worker.woken_by_event != e);
 
 	if (r)
-		remove_event(e, NULL /* todo */);
+		remove_event(e);
 
 	/* Do not expose wakening event/tcfd, user should not tc_rearm() on them */
 	worker.woken_by_event = NULL;
@@ -977,7 +978,7 @@ struct event *tc_signal_enable(struct tc_signal *s)
 
 	/* printf(" (%d) signal_enabled e=%p for %s\n", worker.nr, e, tc_current()->name); */
 
-	e->flags = EF_ALL_FREE;
+	e->flags = EF_SIGNAL;
 	_tc_waitq_prepare_to_wait(&s->wq, e);
 
 	return e;
@@ -990,11 +991,7 @@ static void _signal_gets_delivered2(struct event *e)
 
 void tc_signal_disable(struct tc_signal *s, struct event *e)
 {
-	/* Search s */
-	/* Search sched.immediate */
-	/* Search tc->pending */
-	/* todo: Remove! */
-
+	remove_event(e);
 	free(e);
 }
 
@@ -1007,7 +1004,7 @@ static void signal_cancel_pending()
 
 	spin_lock(&sched.immediate.lock);
 	CIRCLEQ_FOREACH(e, &sched.immediate.events, e_chain) {
-		if (e->tc == tc && e->flags == EF_ALL_FREE) {
+		if (e->tc == tc && e->flags == EF_SIGNAL) {
 			_remove_event(e, &sched.immediate);
 			free(e);
 		}
@@ -1016,7 +1013,7 @@ static void signal_cancel_pending()
 
 	spin_lock(&tc->pending.lock);
 	CIRCLEQ_FOREACH(e, &tc->pending.events, e_chain) {
-		if (e->flags == EF_ALL_FREE) {
+		if (e->flags == EF_SIGNAL) {
 			_remove_event(e, &tc->pending);
 			free(e);
 		}

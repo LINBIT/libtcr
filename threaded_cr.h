@@ -22,11 +22,9 @@ extern int timerfd_gettime (int __ufd, struct itimerspec *__otmr);
 #include "coroutines.h"
 
 enum tc_event_flag {
-	EF_ALL      = 0, /* Wake all tc_threads waiting for that event. (freed() by the scheduler)       */
-	EF_ALL_FREE = 1, /* Like EF_ALL, and free the event. */
-	EF_ONE      = 2, /* Wake only one tc_thread waiting for that event. Call to tc_rearm() necesary  */
-	EF_EXITING  = 3, /* Free my struct tc_thread */
-	EF_READY    = 4, /* I am ready to run */
+	EF_READY       = 1, /* I am ready to run */
+	EF_EXITING     = 2, /* Free my struct tc_thread */
+	EF_SIGNAL      = 3, /* Like EF_ALL, and free the event. */
 };
 
 enum tc_rv {
@@ -44,6 +42,7 @@ struct event {
 	};
 	__uint32_t ep_events; /* EPOLLIN, EPOLLOUT, ... */
 	enum tc_event_flag flags;
+	struct event_list *el;
 };
 
 CIRCLEQ_HEAD(events, event);
