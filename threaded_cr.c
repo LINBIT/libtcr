@@ -289,7 +289,7 @@ static int run_immediate(struct tc_thread *not_for_tc)
 		worker.woken_by_tcfd  = NULL;
 		if (e->tc != not_for_tc) {
 			_remove_event(e, &sched.immediate);
-			spin_unlock(&sched.lock);
+			spin_unlock(&sched.immediate.lock);
 			switch (e->flags) {
 			case EF_READY:
 				switch_to(e->tc);
