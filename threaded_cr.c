@@ -571,7 +571,7 @@ void tc_die()
 		LIST_REMOVE(tc, threads_chain);
 	spin_unlock(&sched.lock);
 
-	tc_waitq_wakeup(&tc->exit_waiters);
+	tc_waitq_wakeup_all(&tc->exit_waiters);
 
 	if (atomic_read(&tc->refcnt) > 0) {
 		signal_cancel_pending();
@@ -935,14 +935,44 @@ void tc_waitq_wait(struct tc_waitq *wq) /* do not use! */
 	tc_waitq_finish_wait(wq, &e);
 }
 
-void tc_waitq_wakeup(struct tc_waitq *wq)
+void tc_waitq_wakeup_one(struct tc_waitq *wq)
+{
+	int wake = 0;
+	struct event *e;
+
+	spin_lock(&wq->waiters.lock);
+	if (wq->nr_waiters) {
+		spin_lock(&sched.immediate.lock);
+		e = CIRCLEQ_LAST(&wq->waiters.events);
+		CIRCLEQ_REMOVE(&wq->waiters.events, e, e_chain);
+		CIRCLEQ_INSERT_HEAD(&sched.immediate.events, e, e_chain);
+		spin_unlock(&sched.immediate.lock);
+		wq->nr_waiters--;
+		wake = 1;
+	}
+	spin_unlock(&wq->waiters.lock);
+
+	if (wake)
+		iwi_immediate();
+}
+
+/* Head1 gets all elements, head2 needs to be initialized afterwards */
+#define	CIRCLEQ_CONCAT(head1, head2, field) do {			\
+	(head1)->cqh_first->field.cqe_prev = (head2)->cqh_last;		\
+	(head2)->cqh_last->field.cqe_next = (head1)->cqh_first;		\
+	(head1)->cqh_first = (head2)->cqh_first;			\
+	(head2)->cqh_first->field.cqe_prev = (void *)head1;		\
+} while (/*CONSTCOND*/0)
+
+void tc_waitq_wakeup_all(struct tc_waitq *wq)
 {
 	int wake = 0;
 
 	spin_lock(&wq->waiters.lock);
 	if (wq->nr_waiters) {
 		spin_lock(&sched.immediate.lock);
-		/* list concat. put all events from wq->waiters to sched.immediate */ /* todo */;
+		CIRCLEQ_CONCAT(&sched.immediate.events, &wq->waiters.events, e_chain);
+		CIRCLEQ_INIT(&wq->waiters.events);
 		spin_unlock(&sched.immediate.lock);
 		wake = wq->nr_waiters;
 		wq->nr_waiters = 0;
@@ -1029,7 +1059,7 @@ void tc_signal_unregister(struct tc_signal *s)
 
 void tc_signal_fire(struct tc_signal *s)
 {
-	tc_waitq_wakeup(&s->wq);
+	tc_waitq_wakeup_all(&s->wq);
 }
 
 enum tc_rv tc_sleep(int clockid, time_t sec, long nsec)

@@ -147,8 +147,12 @@ void tc_signal_unregister(struct tc_signal *s);
 
 /* Waitqueues.*/
 void tc_waitq_init(struct tc_waitq *wq);
-void tc_waitq_wakeup(struct tc_waitq *wq);
+void tc_waitq_wakeup_all(struct tc_waitq *wq);
+void tc_waitq_wakeup_one(struct tc_waitq *wq);
 void tc_waitq_unregister(struct tc_waitq *wq);
+
+/* Source compatibility stuff. In new code use the _one or _all variant*/
+#define tc_waitq_wakeup(WQ) tc_waitq_wakeup_all(WQ)
 
 /* tc_sleep clockid = CLOCK_REALTIME or CLOCK_MONOTONIC */
 enum tc_rv tc_sleep(int clockid, time_t sec, long nsec);
