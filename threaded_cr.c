@@ -631,8 +631,7 @@ struct tc_thread *tc_thread_new(void (*func)(void *), void *data, char* name)
 	atomic_set(&tc->refcnt, 0);
 	spin_lock_init(&tc->running);
 	tc->flags = 0;
-	CIRCLEQ_INIT(&tc->pending.events);
-	spin_lock_init(&tc->pending.lock);
+	event_list_init(&tc->pending);
 
 	spin_lock(&sched.lock);
 	LIST_INSERT_HEAD(&sched.threads, tc, tc_chain);
