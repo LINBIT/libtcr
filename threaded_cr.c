@@ -952,10 +952,19 @@ void tc_waitq_wakeup_one(struct tc_waitq *wq)
 
 /* Head1 gets all elements, head2 needs to be initialized afterwards */
 #define	CIRCLEQ_CONCAT(head1, head2, field) do {			\
-	(head1)->cqh_first->field.cqe_prev = (head2)->cqh_last;		\
-	(head2)->cqh_last->field.cqe_next = (head1)->cqh_first;		\
-	(head1)->cqh_first = (head2)->cqh_first;			\
-	(head2)->cqh_first->field.cqe_prev = (void *)head1;		\
+	if ((head2)->cqh_first == (void *)head2)  			\
+		break;							\
+	if ((head1)->cqh_first == (void *)head1) {			\
+		(head1)->cqh_first = (head2)->cqh_first;		\
+		(head1)->cqh_first->field.cqe_prev = (void *)head1;	\
+		(head1)->cqh_last = (head2)->cqh_last;			\
+		(head1)->cqh_last->field.cqe_next = (void *)head1;	\
+	} else {							\
+		(head1)->cqh_first->field.cqe_prev = (head2)->cqh_last;	\
+		(head2)->cqh_last->field.cqe_next = (head1)->cqh_first;	\
+		(head1)->cqh_first = (head2)->cqh_first;		\
+		(head2)->cqh_first->field.cqe_prev = (void *)head1;	\
+	}								\
 } while (/*CONSTCOND*/0)
 
 void tc_waitq_wakeup_all(struct tc_waitq *wq)
