@@ -273,16 +273,19 @@ static void arm_immediate(int op)
 		msg_exit(1, "epoll_ctl failed with %m\n");
 }
 
-static int run_or_queue(struct event *e)
+static struct tc_thread *run_or_queue(struct event *e)
 {
 	struct tc_thread *tc = e->tc;
+
+	if (e->flags == EF_EXITING)
+		return tc;
 
 	spin_lock(&tc->pending.lock);
 	if (tc->flags & TF_RUNNING) {
 		e->tcfd = worker.woken_by_tcfd;
 		_add_event(e, &tc->pending, tc);
 		spin_unlock(&tc->pending.lock);
-		return 0;
+		return NULL;
 	}
 	tc->flags |= TF_RUNNING;
 	spin_unlock(&tc->pending.lock);
@@ -292,26 +295,28 @@ static int run_or_queue(struct event *e)
 
 	worker.woken_by_event = e;
 
-	switch_to(tc);
-
-	return 1;
+	return tc;
 }
 
 static int run_immediate(struct tc_thread *not_for_tc)
 {
 	struct event *e;
+	struct tc_thread* tc;
 
 	spin_lock(&sched.immediate.lock);
 	worker.woken_by_tcfd  = NULL;
 	CIRCLEQ_FOREACH(e, &sched.immediate.events, e_chain) {
 		if (e->tc != not_for_tc) {
 			_remove_event(e, &sched.immediate);
+			tc = run_or_queue(e);
+			if (!tc)
+				continue;
 			spin_unlock(&sched.immediate.lock);
 			switch (e->flags) {
 			case EF_READY:
 			case EF_SIGNAL:
-				if (run_or_queue(e))
-					return 1; /* must cause tc_schedulre() to return! */
+				switch_to(tc);
+				return 1; /* must cause tc_schedulre() to return! */
 			case EF_EXITING:
 				tc_thread_free(e->tc);
 				spin_lock(&sched.immediate.lock);
@@ -426,11 +431,14 @@ static void scheduler_part2()
 			continue;
 		}
 
+		worker.woken_by_tcfd = tcfd;
 		_remove_event(e, &tcfd->events);
+		tc = run_or_queue(e);
+
 		spin_unlock(&tcfd->events.lock);
 
-		worker.woken_by_tcfd = tcfd;
-		run_or_queue(e);
+		if (tc)
+			switch_to(tc);
 	}
 }
 
