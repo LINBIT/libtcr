@@ -314,7 +314,7 @@ static int run_immediate(struct tc_thread *not_for_tc)
 					return 1; /* must cause tc_schedulre() to return! */
 			case EF_EXITING:
 				tc_thread_free(e->tc);
-				spin_lock(&sched.lock);
+				spin_lock(&sched.immediate.lock);
 				e = CIRCLEQ_FIRST(&sched.immediate.events);
 				continue;
 			default:
