@@ -1,4 +1,4 @@
-#define _GNU_SOURCE /* for asprintf() */ 
+#define _GNU_SOURCE /* for asprintf() */
 
 #include "config.h"
 
@@ -54,6 +54,11 @@ extern int timerfd_gettime (int __ufd, struct itimerspec *__otmr)
 }
 #endif
 
+struct tc_signal_sub {
+	LIST_ENTRY(tc_signal_sub) se_chain;
+	struct event event;
+};
+
 enum thread_flags {
 	TF_THREADS = 1 << 0, /* is on threads chain*/
 	TF_RUNNING = 1 << 1,
@@ -107,7 +112,7 @@ static struct scheduler sched;
 static struct tc_thread *tc_main;
 static __thread struct worker_struct worker;
 
-static void _signal_gets_delivered2(struct event *e);
+static void _signal_gets_delivered(struct event *e);
 static void signal_cancel_pending();
 static void _synchronize_world();
 static void synchronize_world();
@@ -291,7 +296,7 @@ static struct tc_thread *run_or_queue(struct event *e)
 	spin_unlock(&tc->pending.lock);
 
 	if (e->flags == EF_SIGNAL)
-		_signal_gets_delivered2(e);
+		_signal_gets_delivered(e);
 
 	worker.woken_by_event = e;
 
@@ -373,7 +378,7 @@ void tc_scheduler(void)
 		_remove_event(e, &tc->pending);
 		spin_unlock(&tc->pending.lock);
 		if (e->flags == EF_SIGNAL)
-			_signal_gets_delivered2(e);
+			_signal_gets_delivered(e);
 		worker.woken_by_tcfd  = e->tcfd;
 		worker.woken_by_event = e;
 		return;
@@ -901,7 +906,6 @@ void tc_waitq_init(struct tc_waitq *wq)
 
 static void _tc_waitq_prepare_to_wait(struct tc_waitq *wq, struct event *e)
 {
-	e->ep_events = 0; /* unused */
 	spin_lock(&wq->waiters.lock);
 	wq->nr_waiters++;
 	_add_event(e, &wq->waiters, tc_current());
@@ -910,6 +914,7 @@ static void _tc_waitq_prepare_to_wait(struct tc_waitq *wq, struct event *e)
 
 void tc_waitq_prepare_to_wait(struct tc_waitq *wq, struct event *e)
 {
+	e->ep_events = 0; /* unused */
 	e->flags = EF_READY;
 	_tc_waitq_prepare_to_wait(wq, e);
 }
@@ -1007,32 +1012,53 @@ void tc_waitq_unregister(struct tc_waitq *wq)
 void tc_signal_init(struct tc_signal *s)
 {
 	tc_waitq_init(&s->wq);
+	LIST_INIT(&s->sss);
 }
 
-struct event *tc_signal_enable(struct tc_signal *s)
+static void _signal_gets_delivered(struct event *e)
 {
-	struct event *e;
+	_tc_waitq_prepare_to_wait(&e->signal->wq, e);
+}
 
-	e = malloc(sizeof(struct event));
-	if (!e)
-		msg_exit(1, "malloc of event failed in tc_signal_enable\n");
+struct tc_signal_sub *tc_signal_enable(struct tc_signal *s)
+{
+	struct tc_signal_sub *ss;
+
+	ss = malloc(sizeof(struct tc_signal_sub));
+	if (!ss)
+		msg_exit(1, "malloc of tc_signal_sub failed in tc_signal_enable\n");
 
 	/* printf(" (%d) signal_enabled e=%p for %s\n", worker.nr, e, tc_current()->name); */
 
-	e->flags = EF_SIGNAL;
-	_tc_waitq_prepare_to_wait(&s->wq, e);
+	spin_lock(&s->wq.waiters.lock);
+	LIST_INSERT_HEAD(&s->sss, ss, se_chain);
+	spin_unlock(&s->wq.waiters.lock);
 
-	return e;
+	ss->event.signal = s;
+	ss->event.flags = EF_SIGNAL;
+	_signal_gets_delivered(&ss->event);
+
+	return ss;
 }
 
-static void _signal_gets_delivered2(struct event *e)
+void tc_signal_disable(struct tc_signal *s, struct tc_signal_sub *ss)
 {
-	free(e);
+	remove_event(&ss->event);
+	spin_lock(&s->wq.waiters.lock);
+	LIST_REMOVE(ss, se_chain);
+	spin_unlock(&s->wq.waiters.lock);
+	free(ss);
 }
 
-void tc_signal_disable(struct tc_signal *s, struct event *e)
+static void _cancel_signal(struct event *e, struct event_list *el)
 {
-	remove_event(e);
+	struct tc_signal_sub *ss;
+
+	_remove_event(e, &sched.immediate);
+	ss = container_of(e, struct tc_signal_sub, event);
+	spin_lock(&e->signal->wq.waiters.lock);
+	LIST_REMOVE(ss, se_chain);
+	spin_unlock(&e->signal->wq.waiters.lock);
 	free(e);
 }
 
@@ -1040,24 +1066,18 @@ static void signal_cancel_pending()
 {
 	struct event *e;
 	struct tc_thread *tc = tc_current();
-	/* Search my own run list */
-	/* Search for my in the immedate list */
 
 	spin_lock(&sched.immediate.lock);
 	CIRCLEQ_FOREACH(e, &sched.immediate.events, e_chain) {
-		if (e->tc == tc && e->flags == EF_SIGNAL) {
-			_remove_event(e, &sched.immediate);
-			free(e);
-		}
+		if (e->tc == tc && e->flags == EF_SIGNAL)
+			_cancel_signal(e, &sched.immediate);
 	}
 	spin_unlock(&sched.immediate.lock);
 
 	spin_lock(&tc->pending.lock);
 	CIRCLEQ_FOREACH(e, &tc->pending.events, e_chain) {
-		if (e->flags == EF_SIGNAL) {
-			_remove_event(e, &tc->pending);
-			free(e);
-		}
+		if (e->flags == EF_SIGNAL)
+			_cancel_signal(e, &tc->pending);
 	}
 	spin_unlock(&tc->pending.lock);
 }
@@ -1065,6 +1085,15 @@ static void signal_cancel_pending()
 
 void tc_signal_unregister(struct tc_signal *s)
 {
+	struct tc_signal_sub *ss;
+
+	spin_lock(&s->wq.waiters.lock);
+	LIST_FOREACH(ss, &s->sss, se_chain) {
+		remove_event(&ss->event);
+		LIST_REMOVE(ss, se_chain);
+	}
+	spin_unlock(&s->wq.waiters.lock);
+
 	tc_waitq_unregister(&s->wq);
 }
 

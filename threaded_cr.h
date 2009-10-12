@@ -40,6 +40,7 @@ struct event {
 	union {
 		__uint32_t ep_events; /* EPOLLIN, EPOLLOUT, ... */
 		struct tc_fd *tcfd;   /* when it is attaache to an tc_thread */
+		struct tc_signal *signal;
 	};
 	enum tc_event_flag flags;
 	struct event_list *el;
@@ -68,8 +69,12 @@ struct tc_waitq {
 	int nr_waiters;
 };
 
+struct tc_signal_sub; /* signal subscription */
+LIST_HEAD(tc_signal_subs, tc_signal_sub);
+
 struct tc_signal {
 	struct tc_waitq wq;
+	struct tc_signal_subs sss; /* protected by wq.waiters.lock */
 };
 
 struct tc_thread;
@@ -140,8 +145,8 @@ enum tc_rv tc_mutex_trylock(struct tc_mutex *m);
    tc_signal_disable is idempotent.
 */
 void tc_signal_init(struct tc_signal *s);
-struct event *tc_signal_enable(struct tc_signal *s);
-void tc_signal_disable(struct tc_signal *s, struct event *e);
+struct tc_signal_sub *tc_signal_enable(struct tc_signal *s);
+void tc_signal_disable(struct tc_signal *s, struct tc_signal_sub *ss);
 void tc_signal_fire(struct tc_signal *s);
 void tc_signal_unregister(struct tc_signal *s);
 

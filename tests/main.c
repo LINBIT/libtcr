@@ -127,7 +127,7 @@ struct reader_info {
 static void unix_socket_reader(void *data)
 {
 	struct reader_info *ri = (struct reader_info *)data;
-	struct event *e;
+	struct tc_signal_sub *e;
 	char b[10];
 	int rr;
 	void *m;
