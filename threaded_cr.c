@@ -287,7 +287,8 @@ static struct tc_thread *run_or_queue(struct event *e)
 
 	spin_lock(&tc->pending.lock);
 	if (tc->flags & TF_RUNNING) {
-		e->tcfd = worker.woken_by_tcfd;
+		if (e->flags != EF_SIGNAL)
+			e->tcfd = worker.woken_by_tcfd;
 		_add_event(e, &tc->pending, tc);
 		spin_unlock(&tc->pending.lock);
 		return NULL;
