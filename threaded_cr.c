@@ -347,7 +347,8 @@ static void process_immediate()
 		msg_exit(1, "read() failed with %m");
 
 	arm_immediate(EPOLL_CTL_MOD);
-	run_immediate(NULL);
+	while(run_immediate(NULL))
+		;
 }
 
 static void iwi_immediate()
