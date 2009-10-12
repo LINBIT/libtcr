@@ -314,8 +314,10 @@ static int run_immediate(struct tc_thread *not_for_tc)
 		if (e->tc != not_for_tc) {
 			_remove_event(e, &sched.immediate);
 			tc = run_or_queue(e);
-			if (!tc)
+			if (!tc) {
+				e = CIRCLEQ_FIRST(&sched.immediate.events);
 				continue;
+			}
 			spin_unlock(&sched.immediate.lock);
 			switch (e->flags) {
 			case EF_READY:
