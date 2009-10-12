@@ -54,8 +54,6 @@ extern int timerfd_gettime (int __ufd, struct itimerspec *__otmr)
 }
 #endif
 
-LIST_HEAD(waitq_evs, waitq_ev);
-
 enum thread_flags {
 	TF_THREADS = 1 << 0, /* is on threads chain*/
 	TF_RUNNING = 1 << 1,
