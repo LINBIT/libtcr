@@ -185,9 +185,10 @@ static void _remove_event(struct event *e, struct event_list *el)
 
 static void remove_event(struct event *e)
 {
-	spin_lock(&e->el->lock);
-	_remove_event(e, e->el);
-	spin_unlock(&e->el->lock);
+	struct event_list *el = e->el;
+	spin_lock(&el->lock);
+	_remove_event(e, el);
+	spin_unlock(&el->lock);
 }
 
 /* must_hold el->lock */
