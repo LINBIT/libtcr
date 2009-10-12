@@ -353,11 +353,8 @@ void tc_sched_yield()
 	struct event e;
 
 	add_event_cr(&e, 0, EF_READY, tc); /* use tc->e ? */
-	if (!run_immediate(tc)) {
-		spin_lock(&sched.lock);
-		_remove_event(&e, &sched.immediate);
-		spin_unlock(&sched.lock);
-	}
+	if (!run_immediate(tc))
+		remove_event(&e);
 }
 
 void tc_scheduler(void)
