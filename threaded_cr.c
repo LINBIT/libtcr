@@ -69,9 +69,8 @@ struct tc_thread {
 	struct tc_waitq exit_waiters;
 	atomic_t refcnt;
 	spinlock_t running;
-	unsigned int flags;
-	struct events pending;
-	spinlock_t lock; /* protects flags member and the pending list. */
+	unsigned int flags; /* flags protected by pending.lock */
+	struct event_list pending;
 	struct event e;  /* Used during start and stop. */
 };
 
@@ -347,11 +346,11 @@ void tc_scheduler(void)
 	struct event *e;
 	struct tc_thread *tc = tc_current();
 
-	spin_lock(&tc->lock);
-	if (!CIRCLEQ_EMPTY(&tc->pending)) {
-		e = CIRCLEQ_FIRST(&tc->pending);
-		CIRCLEQ_REMOVE(&tc->pending, e, e_chain);
-		spin_unlock(&tc->lock);
+	spin_lock(&tc->pending.lock);
+	if (!CIRCLEQ_EMPTY(&tc->pending.events)) {
+		e = CIRCLEQ_FIRST(&tc->pending.events);
+		CIRCLEQ_REMOVE(&tc->pending.events, e, e_chain);
+		spin_unlock(&tc->pending.lock);
 		if (e->flags == EF_ALL_FREE)
 			_signal_gets_delivered2(e);
 		worker.woken_by_tcfd  = e->tcfd;
@@ -359,7 +358,7 @@ void tc_scheduler(void)
 		return;
 	}
 	tc->flags &= ~TF_RUNNING;
-	spin_unlock(&tc->lock);
+	spin_unlock(&tc->pending.lock);
 
 	if (run_immediate(tc))
 		return;
@@ -419,15 +418,15 @@ static void scheduler_part2()
 		if (e->flags == EF_ALL_FREE)
 			tcfd = NULL; /* Do not expose the tcfd in case it was a signal. */
 
-		spin_lock(&tc->lock);
+		spin_lock(&tc->pending.lock);
 		if (tc->flags & TF_RUNNING) {
 			e->tcfd = tcfd;
-			CIRCLEQ_INSERT_HEAD(&tc->pending, e, e_chain);
-			spin_unlock(&tc->lock);
+			CIRCLEQ_INSERT_HEAD(&tc->pending.events, e, e_chain);
+			spin_unlock(&tc->pending.lock);
 			continue;
 		}
 		tc->flags |= TF_RUNNING;
-		spin_unlock(&tc->lock);
+		spin_unlock(&tc->pending.lock);
 
 		if (e->flags == EF_ALL_FREE)
 			_signal_gets_delivered2(e);
@@ -452,8 +451,7 @@ void tc_worker_init(int i)
 	spin_lock_init(&worker.main_thread.running);
 	spin_lock(&worker.main_thread.running); /* runs currently */
 	worker.main_thread.flags = TF_RUNNING;
-	CIRCLEQ_INIT(&worker.main_thread.pending);
-	spin_lock_init(&worker.main_thread.lock);
+	event_list_init(&worker.main_thread.pending);
 	/* LIST_INSERT_HEAD(&sched.threads, &worker.main_thread, tc_chain); */
 
 	asprintf(&worker.sched_p2.name, "sched_%d", i);
@@ -466,8 +464,7 @@ void tc_worker_init(int i)
 	atomic_set(&worker.sched_p2.refcnt, 0);
 	spin_lock_init(&worker.sched_p2.running);
 	worker.sched_p2.flags = 0;
-	CIRCLEQ_INIT(&worker.sched_p2.pending);
-	spin_lock_init(&worker.sched_p2.lock);
+	event_list_init(&worker.sched_p2.pending);
 }
 
 void tc_init()
@@ -633,8 +630,8 @@ struct tc_thread *tc_thread_new(void (*func)(void *), void *data, char* name)
 	atomic_set(&tc->refcnt, 0);
 	spin_lock_init(&tc->running);
 	tc->flags = 0;
-	CIRCLEQ_INIT(&tc->pending);
-	spin_lock_init(&tc->lock);
+	CIRCLEQ_INIT(&tc->pending.events);
+	spin_lock_init(&tc->pending.lock);
 
 	spin_lock(&sched.lock);
 	LIST_INSERT_HEAD(&sched.threads, tc, tc_chain);
@@ -1017,15 +1014,14 @@ static void signal_cancel_pending()
 	}
 	spin_unlock(&sched.immediate.lock);
 
-	spin_lock(&tc->lock);
-	CIRCLEQ_FOREACH(e, &tc->pending, e_chain) {
+	spin_lock(&tc->pending.lock);
+	CIRCLEQ_FOREACH(e, &tc->pending.events, e_chain) {
 		if (e->flags == EF_ALL_FREE) {
-			CIRCLEQ_REMOVE(&tc->pending, e, e_chain);
-			atomic_dec(&e->tc->refcnt);
+			_remove_event(e, &tc->pending);
 			free(e);
 		}
 	}
-	spin_unlock(&tc->lock);
+	spin_unlock(&tc->pending.lock);
 }
 
 
