@@ -180,6 +180,7 @@ static void _remove_event(struct event *e, struct event_list *el)
 {
 	CIRCLEQ_REMOVE(&el->events, e, e_chain);
 	atomic_dec(&e->tc->refcnt);
+	e->el = NULL;
 }
 
 static void remove_event(struct event *e)
@@ -277,7 +278,7 @@ static int run_or_queue(struct event *e)
 
 	spin_lock(&tc->pending.lock);
 	if (tc->flags & TF_RUNNING) {
-		CIRCLEQ_INSERT_HEAD(&tc->pending.events, e, e_chain);
+		_add_event(e, &tc->pending, tc);
 		spin_unlock(&tc->pending.lock);
 		return 0;
 	}
@@ -366,7 +367,7 @@ void tc_scheduler(void)
 	spin_lock(&tc->pending.lock);
 	if (!CIRCLEQ_EMPTY(&tc->pending.events)) {
 		e = CIRCLEQ_FIRST(&tc->pending.events);
-		CIRCLEQ_REMOVE(&tc->pending.events, e, e_chain);
+		_remove_event(e, &tc->pending);
 		spin_unlock(&tc->pending.lock);
 		if (e->flags == EF_SIGNAL)
 			_signal_gets_delivered2(e);
