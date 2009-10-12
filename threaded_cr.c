@@ -279,6 +279,7 @@ static int run_or_queue(struct event *e)
 
 	spin_lock(&tc->pending.lock);
 	if (tc->flags & TF_RUNNING) {
+		e->tcfd = worker.woken_by_tcfd;
 		_add_event(e, &tc->pending, tc);
 		spin_unlock(&tc->pending.lock);
 		return 0;
@@ -301,9 +302,8 @@ static int run_immediate(struct tc_thread *not_for_tc)
 	struct event *e;
 
 	spin_lock(&sched.immediate.lock);
+	worker.woken_by_tcfd  = NULL;
 	CIRCLEQ_FOREACH(e, &sched.immediate.events, e_chain) {
-		worker.woken_by_event = e;
-		worker.woken_by_tcfd  = NULL;
 		if (e->tc != not_for_tc) {
 			_remove_event(e, &sched.immediate);
 			spin_unlock(&sched.immediate.lock);

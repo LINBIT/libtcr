@@ -36,11 +36,11 @@ enum tc_rv {
 
 struct event {
 	CIRCLEQ_ENTRY(event) e_chain;
+	struct tc_thread *tc;
 	union {
-		struct tc_thread *tc; /* when it is attached to an tc_fd */
+		__uint32_t ep_events; /* EPOLLIN, EPOLLOUT, ... */
 		struct tc_fd *tcfd;   /* when it is attaache to an tc_thread */
 	};
-	__uint32_t ep_events; /* EPOLLIN, EPOLLOUT, ... */
 	enum tc_event_flag flags;
 	struct event_list *el;
 };
