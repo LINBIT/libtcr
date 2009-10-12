@@ -950,17 +950,17 @@ void tc_waitq_wakeup_one(struct tc_waitq *wq)
 	int wake = 0;
 	struct event *e;
 
+	spin_lock(&sched.immediate.lock);
 	spin_lock(&wq->waiters.lock);
 	if (wq->nr_waiters) {
-		spin_lock(&sched.immediate.lock);
 		e = CIRCLEQ_LAST(&wq->waiters.events);
 		CIRCLEQ_REMOVE(&wq->waiters.events, e, e_chain);
 		CIRCLEQ_INSERT_HEAD(&sched.immediate.events, e, e_chain);
-		spin_unlock(&sched.immediate.lock);
 		wq->nr_waiters--;
 		wake = 1;
 	}
 	spin_unlock(&wq->waiters.lock);
+	spin_unlock(&sched.immediate.lock);
 
 	if (wake)
 		iwi_immediate();
@@ -987,16 +987,16 @@ void tc_waitq_wakeup_all(struct tc_waitq *wq)
 {
 	int wake = 0;
 
+	spin_lock(&sched.immediate.lock);
 	spin_lock(&wq->waiters.lock);
 	if (wq->nr_waiters) {
-		spin_lock(&sched.immediate.lock);
 		CIRCLEQ_CONCAT(&sched.immediate.events, &wq->waiters.events, e_chain);
 		CIRCLEQ_INIT(&wq->waiters.events);
-		spin_unlock(&sched.immediate.lock);
 		wake = wq->nr_waiters;
 		wq->nr_waiters = 0;
 	}
 	spin_unlock(&wq->waiters.lock);
+	spin_unlock(&sched.immediate.lock);
 
 	if (wake) {
 		if (wake == 1)
