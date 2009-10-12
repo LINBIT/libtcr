@@ -273,6 +273,29 @@ static void arm_immediate(int op)
 		msg_exit(1, "epoll_ctl failed with %m\n");
 }
 
+static int run_or_queue(struct event *e)
+{
+	struct tc_thread *tc = e->tc;
+
+	spin_lock(&tc->pending.lock);
+	if (tc->flags & TF_RUNNING) {
+		CIRCLEQ_INSERT_HEAD(&tc->pending.events, e, e_chain);
+		spin_unlock(&tc->pending.lock);
+		return 0;
+	}
+	tc->flags |= TF_RUNNING;
+	spin_unlock(&tc->pending.lock);
+
+	if (e->flags == EF_SIGNAL)
+		_signal_gets_delivered2(e);
+
+	worker.woken_by_event = e;
+
+	switch_to(tc);
+
+	return 1;
+}
+
 static int run_immediate(struct tc_thread *not_for_tc)
 {
 	struct event *e;
@@ -286,8 +309,9 @@ static int run_immediate(struct tc_thread *not_for_tc)
 			spin_unlock(&sched.immediate.lock);
 			switch (e->flags) {
 			case EF_READY:
-				switch_to(e->tc);
-				return 1; /* must cause tc_schedulre() to return! */
+			case EF_SIGNAL:
+				if (run_or_queue(e))
+					return 1; /* must cause tc_schedulre() to return! */
 			case EF_EXITING:
 				tc_thread_free(e->tc);
 				spin_lock(&sched.lock);
@@ -405,31 +429,11 @@ static void scheduler_part2()
 			continue;
 		}
 
-		tc = e->tc;
 		_remove_event(e, &tcfd->events);
-
 		spin_unlock(&tcfd->events.lock);
 
-		if (e->flags == EF_SIGNAL)
-			tcfd = NULL; /* Do not expose the tcfd in case it was a signal. */
-
-		spin_lock(&tc->pending.lock);
-		if (tc->flags & TF_RUNNING) {
-			e->tcfd = tcfd;
-			CIRCLEQ_INSERT_HEAD(&tc->pending.events, e, e_chain);
-			spin_unlock(&tc->pending.lock);
-			continue;
-		}
-		tc->flags |= TF_RUNNING;
-		spin_unlock(&tc->pending.lock);
-
-		if (e->flags == EF_SIGNAL)
-			_signal_gets_delivered2(e);
-
-		worker.woken_by_event = e;
 		worker.woken_by_tcfd = tcfd;
-
-		switch_to(tc);
+		run_or_queue(e);
 	}
 }
 
