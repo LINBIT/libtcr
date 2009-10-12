@@ -904,11 +904,11 @@ void tc_waitq_init(struct tc_waitq *wq)
 	wq->nr_waiters = 0;
 }
 
-static void _tc_waitq_prepare_to_wait(struct tc_waitq *wq, struct event *e)
+static void _tc_waitq_prepare_to_wait(struct tc_waitq *wq, struct event *e, struct tc_thread *tc)
 {
 	spin_lock(&wq->waiters.lock);
 	wq->nr_waiters++;
-	_add_event(e, &wq->waiters, tc_current());
+	_add_event(e, &wq->waiters, tc);
 	spin_unlock(&wq->waiters.lock);
 }
 
@@ -916,7 +916,7 @@ void tc_waitq_prepare_to_wait(struct tc_waitq *wq, struct event *e)
 {
 	e->ep_events = 0; /* unused */
 	e->flags = EF_READY;
-	_tc_waitq_prepare_to_wait(wq, e);
+	_tc_waitq_prepare_to_wait(wq, e, tc_current());
 }
 
 int tc_waitq_finish_wait(struct tc_waitq *wq, struct event *e)
@@ -1017,7 +1017,7 @@ void tc_signal_init(struct tc_signal *s)
 
 static void _signal_gets_delivered(struct event *e)
 {
-	_tc_waitq_prepare_to_wait(&e->signal->wq, e);
+	_tc_waitq_prepare_to_wait(&e->signal->wq, e, e->tc);
 }
 
 struct tc_signal_sub *tc_signal_enable(struct tc_signal *s)
@@ -1036,7 +1036,7 @@ struct tc_signal_sub *tc_signal_enable(struct tc_signal *s)
 
 	ss->event.signal = s;
 	ss->event.flags = EF_SIGNAL;
-	_signal_gets_delivered(&ss->event);
+	_tc_waitq_prepare_to_wait(&s->wq, &ss->event, tc_current());
 
 	return ss;
 }
