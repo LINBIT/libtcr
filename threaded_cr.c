@@ -192,22 +192,14 @@ static void remove_event(struct event *e)
 }
 
 /* must_hold el->lock */
-static void _add_event(struct event *e, struct event_list *el)
+static void _add_event(struct event *e, struct event_list *el, struct tc_thread *tc)
 {
-	atomic_inc(&tc_current()->refcnt);
-	e->tc = tc_current();
+	atomic_inc(&tc->refcnt);
+	e->tc = tc;
 	e->el = el;
 
 	CIRCLEQ_INSERT_HEAD(&el->events, e, e_chain);
 }
-
-static void add_event(struct event *e, struct event_list *el)
-{
-	spin_lock(&el->lock);
-	_add_event(e, el);
-	spin_unlock(&el->lock);
-}
-
 
 void add_event_fd(struct event *e, __uint32_t ep_events, enum tc_event_flag flags, struct tc_fd *tcfd)
 {
@@ -215,7 +207,7 @@ void add_event_fd(struct event *e, __uint32_t ep_events, enum tc_event_flag flag
  	e->flags = flags;
 
 	spin_lock(&tcfd->events.lock);
-	_add_event(e, &tcfd->events);
+	_add_event(e, &tcfd->events, tc_current());
 	arm(tcfd);
 	spin_unlock(&tcfd->events.lock);
 }
@@ -225,7 +217,9 @@ static void add_event_cr(struct event *e, __uint32_t ep_events, enum tc_event_fl
  	e->ep_events = ep_events;
  	e->flags = flags;
 
-	add_event(e, &sched.immediate);
+	spin_lock(&sched.immediate.lock);
+	_add_event(e, &sched.immediate, tc);
+	spin_unlock(&sched.immediate.lock);
 }
 
 void remove_event_fd(struct event *e, struct tc_fd *tcfd)
@@ -901,7 +895,7 @@ static void _tc_waitq_prepare_to_wait(struct tc_waitq *wq, struct event *e)
 	e->ep_events = 0; /* unused */
 	spin_lock(&wq->waiters.lock);
 	wq->nr_waiters++;
-	_add_event(e, &wq->waiters);
+	_add_event(e, &wq->waiters, tc_current());
 	spin_unlock(&wq->waiters.lock);
 }
 
