@@ -390,8 +390,8 @@ void tc_scheduler(void)
 	tc->flags &= ~TF_RUNNING;
 	spin_unlock(&tc->pending.lock);
 
-	if (run_immediate(tc))
-		return;
+	/* if (run_immediate(tc)) moved to begin of scheduler_part2(). Caused starvation here.
+	   return; */
 
 	switch_to(&worker.sched_p2); /* always -> scheduler_part2()*/
 }
@@ -412,6 +412,8 @@ static void scheduler_part2()
 	   would become active twice, when it gets woken up on a different worker */
 
 	while(1) {
+		run_immediate(NULL);
+
 		do {
 			er = epoll_wait(sched.efd, &epe, 1, -1);
 		} while (er < 0 && errno == EINTR);
