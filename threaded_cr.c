@@ -905,13 +905,11 @@ enum tc_rv tc_thread_wait(struct tc_thread *wait_for)
 void tc_waitq_init(struct tc_waitq *wq)
 {
 	event_list_init(&wq->waiters);
-	wq->nr_waiters = 0;
 }
 
 static void _tc_waitq_prepare_to_wait(struct tc_waitq *wq, struct event *e, struct tc_thread *tc)
 {
 	spin_lock(&wq->waiters.lock);
-	wq->nr_waiters++;
 	_add_event(e, &wq->waiters, tc);
 	spin_unlock(&wq->waiters.lock);
 }
@@ -953,11 +951,11 @@ void tc_waitq_wakeup_one(struct tc_waitq *wq)
 
 	spin_lock(&sched.immediate.lock);
 	spin_lock(&wq->waiters.lock);
-	if (wq->nr_waiters) {
+	if (!CIRCLEQ_EMPTY(&wq->waiters.events)) {
 		e = CIRCLEQ_LAST(&wq->waiters.events);
 		CIRCLEQ_REMOVE(&wq->waiters.events, e, e_chain);
+		e->el = &sched.immediate;
 		CIRCLEQ_INSERT_HEAD(&sched.immediate.events, e, e_chain);
-		wq->nr_waiters--;
 		wake = 1;
 	}
 	spin_unlock(&wq->waiters.lock);
@@ -967,34 +965,19 @@ void tc_waitq_wakeup_one(struct tc_waitq *wq)
 		iwi_immediate();
 }
 
-/* Head1 gets all elements, head2 needs to be initialized afterwards */
-#define	CIRCLEQ_CONCAT(head1, head2, field) do {			\
-	if ((head2)->cqh_first == (void *)head2)  			\
-		break;							\
-	if ((head1)->cqh_first == (void *)head1) {			\
-		(head1)->cqh_first = (head2)->cqh_first;		\
-		(head1)->cqh_first->field.cqe_prev = (void *)head1;	\
-		(head1)->cqh_last = (head2)->cqh_last;			\
-		(head1)->cqh_last->field.cqe_next = (void *)head1;	\
-	} else {							\
-		(head1)->cqh_first->field.cqe_prev = (head2)->cqh_last;	\
-		(head2)->cqh_last->field.cqe_next = (head1)->cqh_first;	\
-		(head1)->cqh_first = (head2)->cqh_first;		\
-		(head2)->cqh_first->field.cqe_prev = (void *)head1;	\
-	}								\
-} while (/*CONSTCOND*/0)
-
 void tc_waitq_wakeup_all(struct tc_waitq *wq)
 {
+	struct event *e;
 	int wake = 0;
 
 	spin_lock(&sched.immediate.lock);
 	spin_lock(&wq->waiters.lock);
-	if (wq->nr_waiters) {
-		CIRCLEQ_CONCAT(&sched.immediate.events, &wq->waiters.events, e_chain);
-		CIRCLEQ_INIT(&wq->waiters.events);
-		wake = wq->nr_waiters;
-		wq->nr_waiters = 0;
+	while(!CIRCLEQ_EMPTY(&wq->waiters.events)) {
+		e = CIRCLEQ_FIRST(&wq->waiters.events);
+		CIRCLEQ_REMOVE(&wq->waiters.events, e, e_chain);
+		e->el = &sched.immediate;
+		CIRCLEQ_INSERT_HEAD(&sched.immediate.events, e, e_chain);
+		wake++;
 	}
 	spin_unlock(&wq->waiters.lock);
 	spin_unlock(&sched.immediate.lock);
@@ -1009,7 +992,7 @@ void tc_waitq_wakeup_all(struct tc_waitq *wq)
 
 void tc_waitq_unregister(struct tc_waitq *wq)
 {
-	if (wq->nr_waiters)
+	if (!CIRCLEQ_EMPTY(&wq->waiters.events))
 		msg_exit(1, "there are still waiters in tc_waitq_unregister()");
 }
 

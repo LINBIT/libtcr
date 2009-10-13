@@ -66,7 +66,6 @@ struct tc_mutex {
 
 struct tc_waitq {
 	struct event_list waiters;
-	int nr_waiters;
 };
 
 struct tc_signal_sub; /* signal subscription */
