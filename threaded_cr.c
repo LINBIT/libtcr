@@ -190,8 +190,18 @@ static void _remove_event(struct event *e, struct event_list *el)
 
 static void remove_event(struct event *e)
 {
-	struct event_list *el = e->el;
-	spin_lock(&el->lock);
+	struct event_list *el;
+
+	/* The event can be moved to an other list while we try to grab
+	   the list lock... */
+	while(1) {
+		do el = e->el; while (el == NULL);
+		spin_lock(&el->lock);
+		if (el == e->el)
+			break;
+		spin_unlock(&el->lock);
+	}
+
 	_remove_event(e, el);
 	spin_unlock(&el->lock);
 }
