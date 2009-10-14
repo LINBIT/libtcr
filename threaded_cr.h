@@ -59,13 +59,13 @@ struct tc_fd {
 	struct event_list events;
 };
 
-struct tc_mutex {
-	atomic_t count;
-	struct tc_fd read_tcfd;
-};
-
 struct tc_waitq {
 	struct event_list waiters;
+};
+
+struct tc_mutex {
+	atomic_t count;
+	struct tc_waitq wq;
 };
 
 struct tc_signal_sub; /* signal subscription */

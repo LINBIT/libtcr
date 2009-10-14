@@ -24,6 +24,7 @@ void worker(void *ttf_vp)
 		/* usleep(1); */
 		in_cr = 0;
 		tc_mutex_unlock(&m);
+		printf("progress on worker %d\n", this_worker_no);
 	}
 }
 

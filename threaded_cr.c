@@ -819,51 +819,37 @@ static void synchronize_world()
 
 void tc_mutex_init(struct tc_mutex *m)
 {
-	int ev_fd;
 	atomic_set(&m->count, 0);
-	ev_fd = eventfd(0, 0);
-	if (ev_fd == -1)
-		msg_exit(1, "eventfd() failed with: %m\n");
-
-	_tc_fd_init(&m->read_tcfd, ev_fd);
+	tc_waitq_init(&m->wq);
 }
 
 enum tc_rv tc_mutex_lock(struct tc_mutex *m)
 {
-	enum tc_rv rv;
-	eventfd_t c;
-	int r;
+	struct event e;
 
+	if (atomic_set_if_eq(1, 0, &m->count))
+		return RV_OK;
+
+	tc_waitq_prepare_to_wait(&m->wq, &e);
 	if (atomic_add_return(1, &m->count) > 1) {
-		while (1) {
-			rv = tc_wait_fd(EPOLLIN, &m->read_tcfd);
-			if (rv != RV_OK)
-				return rv;
-			r = read(m->read_tcfd.fd, &c, sizeof(c));
-			if (r == sizeof(c))
-				break;
-			/* fprintf(stderr, "in tc_mutex_lock read() = %d errno = %m\n", r); */
-		}
-
-		tc_rearm();
+		tc_scheduler();
+		return tc_waitq_finish_wait(&m->wq, &e) ? RV_INTR : RV_OK;
+	} else {
+		tc_waitq_finish_wait(&m->wq, &e);
+		return RV_OK;
 	}
-
-	return RV_OK;
 }
 
 void tc_mutex_unlock(struct tc_mutex *m)
 {
-	eventfd_t c = 1;
 	int r;
 
 	r = atomic_sub_return(1, &m->count);
 
-	if (r > 0) {
-		if (write(m->read_tcfd.fd, &c, sizeof(c)) != sizeof(c))
-			msg_exit(1, "write() failed with: %m\n");
-	} else if (r < 0) {
+	if (r > 0)
+		tc_waitq_wakeup_one(&m->wq);
+	else if (r < 0)
 		msg_exit(1, "tc_mutex_unlocked() called on an unlocked mutex\n");
-	}
 }
 
 enum tc_rv tc_mutex_trylock(struct tc_mutex *m)
@@ -876,8 +862,7 @@ enum tc_rv tc_mutex_trylock(struct tc_mutex *m)
 
 void tc_mutex_unregister(struct tc_mutex *m)
 {
-	_tc_fd_unregister(&m->read_tcfd, 0);
-	close(m->read_tcfd.fd);
+	tc_waitq_unregister(&m->wq);
 }
 
 static enum tc_rv _thread_valid(struct tc_thread *look_for)
@@ -947,7 +932,7 @@ int tc_waitq_finish_wait(struct tc_waitq *wq, struct event *e)
 	return r;
 }
 
-void tc_waitq_wait(struct tc_waitq *wq) /* do not use! */
+void tc_waitq_wait(struct tc_waitq *wq)
 {
 	struct event e;
 
