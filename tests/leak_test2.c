@@ -21,7 +21,7 @@ void drbd_connection(void *unused)
 {
 	static int thread_no = 0;
 	int my_thread_no = thread_no++;
-	struct event *ed, *es;
+	struct tc_signal_sub *ed, *es;
 
 	fprintf(stderr, "DRBD reader %d started.\n", my_thread_no);
 
@@ -50,7 +50,7 @@ void writer(void *unused)
 void accepter(void *unused)
 {
 	struct tc_thread *the_writer;
-	struct event *e;
+	struct tc_signal_sub *e;
 
 	fprintf(stderr, "starting accepter\n");
 	e = tc_signal_enable(&the_drbd_signal);
