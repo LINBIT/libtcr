@@ -573,10 +573,13 @@ void tc_rearm()
 enum tc_rv tc_wait_fd(__uint32_t ep_events, struct tc_fd *tcfd)
 {
 	struct event e;
+	int r;
 
 	add_event_fd(&e, ep_events | EPOLLONESHOT, EF_READY, tcfd);
 	tc_scheduler();
-	if (worker.woken_by_event != &e) {
+	r = (worker.woken_by_event != &e);
+	worker.woken_by_event = NULL;
+	if (r) {
 		remove_event_fd(&e, tcfd);
 		return RV_INTR;
 	}
@@ -922,12 +925,9 @@ int tc_waitq_finish_wait(struct tc_waitq *wq, struct event *e)
 {
 	int r = (worker.woken_by_event != e);
 
+	worker.woken_by_event = NULL;
 	if (r)
 		remove_event(e);
-
-	/* Do not expose wakening event/tcfd, user should not tc_rearm() on them */
-	worker.woken_by_event = NULL;
-	worker.woken_by_tcfd  = NULL;
 
 	return r;
 }
