@@ -75,6 +75,7 @@ struct tc_thread {
 	unsigned int flags; /* flags protected by pending.lock */
 	struct event_list pending;
 	struct event e;  /* Used during start and stop. */
+	int worker_nr;
 };
 
 struct setup_info {
@@ -151,6 +152,11 @@ static __uint32_t calc_epoll_event_mask(struct events *es)
 static struct event *matching_event(__uint32_t em, struct events *es)
 {
 	struct event *e;
+	/* prefer events of threads that prefer this worker */
+	CIRCLEQ_FOREACH(e, es, e_chain) {
+		if (em & e->ep_events && e->tc->worker_nr == worker.nr)
+			return e;
+	}
 	CIRCLEQ_FOREACH(e, es, e_chain) {
 		if (em & e->ep_events)
 			return e;
@@ -251,7 +257,7 @@ void tc_thread_free(struct tc_thread *tc)
 	free(tc);
 }
 
-static void switch_to(struct tc_thread *new)
+static void _switch_to(struct tc_thread *new)
 {
 	struct tc_thread *previous;
 
@@ -275,6 +281,17 @@ static void switch_to(struct tc_thread *new)
 
 	previous = (struct tc_thread *)cr_uptr(cr_caller());
 	spin_unlock(&previous->running);
+}
+
+static void switch_to(struct tc_thread *new)
+{
+	int nr = worker.nr;
+
+	if (new->worker_nr != nr) {
+		if (!(new->flags & TF_THREADS))
+			new->worker_nr = nr;
+	}
+	_switch_to(new);
 }
 
 static void arm_immediate(int op)
@@ -314,7 +331,7 @@ static struct tc_thread *run_or_queue(struct event *e)
 	return tc;
 }
 
-static int run_immediate(struct tc_thread *not_for_tc)
+static int _run_immediate(struct tc_thread *not_for_tc, int nr)
 {
 	struct event *e;
 	struct tc_thread* tc;
@@ -322,32 +339,41 @@ static int run_immediate(struct tc_thread *not_for_tc)
 	spin_lock(&sched.immediate.lock);
 	worker.woken_by_tcfd  = NULL;
 	CIRCLEQ_FOREACH(e, &sched.immediate.events, e_chain) {
-		if (e->tc != not_for_tc) {
-			_remove_event(e, &sched.immediate);
-			tc = run_or_queue(e);
-			if (!tc) {
-				e = CIRCLEQ_FIRST(&sched.immediate.events);
-				continue;
-			}
-			spin_unlock(&sched.immediate.lock);
-			switch (e->flags) {
-			case EF_READY:
-			case EF_SIGNAL:
-				switch_to(tc);
-				return 1; /* must cause tc_schedulre() to return! */
-			case EF_EXITING:
-				tc_thread_free(e->tc);
-				spin_lock(&sched.immediate.lock);
-				e = CIRCLEQ_FIRST(&sched.immediate.events);
-				continue;
-			default:
-				msg_exit(1, "Wrong e->flags in immediate list\n");
-			}
+		if (e->tc == not_for_tc)
+			continue;
+		if (nr && e->tc->worker_nr != nr)
+			continue;
+		_remove_event(e, &sched.immediate);
+		tc = run_or_queue(e);
+		if (!tc) {
+			e = CIRCLEQ_FIRST(&sched.immediate.events);
+			continue;
+		}
+		spin_unlock(&sched.immediate.lock);
+		switch (e->flags) {
+		case EF_READY:
+		case EF_SIGNAL:
+			switch_to(tc);
+			return 1; /* must cause tc_schedulre() to return! */
+		case EF_EXITING:
+			tc_thread_free(e->tc);
+			spin_lock(&sched.immediate.lock);
+			e = CIRCLEQ_FIRST(&sched.immediate.events);
+			continue;
+		default:
+			msg_exit(1, "Wrong e->flags in immediate list\n");
 		}
 	}
 	spin_unlock(&sched.immediate.lock);
 
 	return 0;
+}
+
+static int run_immediate(struct tc_thread *not_for_tc)
+{
+	if (_run_immediate(not_for_tc, worker.nr))
+		return 1;
+	return _run_immediate(not_for_tc, 0);
 }
 
 static void process_immediate()
@@ -403,7 +429,7 @@ void tc_scheduler(void)
 	/* if (run_immediate(tc)) moved to begin of scheduler_part2(). Caused starvation here.
 	   return; */
 
-	switch_to(&worker.sched_p2); /* always -> scheduler_part2()*/
+	_switch_to(&worker.sched_p2); /* always -> scheduler_part2()*/
 }
 
 static void scheduler_part2()
@@ -477,6 +503,7 @@ void tc_worker_init(int i)
 	spin_lock(&worker.main_thread.running); /* runs currently */
 	worker.main_thread.flags = TF_RUNNING;
 	event_list_init(&worker.main_thread.pending);
+	worker.main_thread.worker_nr = i;
 	/* LIST_INSERT_HEAD(&sched.threads, &worker.main_thread, tc_chain); */
 
 	asprintf(&worker.sched_p2.name, "sched_%d", i);
@@ -490,6 +517,7 @@ void tc_worker_init(int i)
 	spin_lock_init(&worker.sched_p2.running);
 	worker.sched_p2.flags = 0;
 	event_list_init(&worker.sched_p2.pending);
+	worker.sched_p2.worker_nr = i;
 }
 
 void tc_init()
@@ -610,7 +638,7 @@ void tc_die()
 
 	add_event_cr(&tc->e, 0, EF_EXITING, tc);  /* The scheduler will free me */
 	iwi_immediate();
-	switch_to(&worker.sched_p2); /* like tc_scheduler(); but avoids deadlocks */
+	_switch_to(&worker.sched_p2); /* like tc_scheduler(); but avoids deadlocks */
 	msg_exit(1, "tc_scheduler() returned in tc_die() [flags = %d]\n", &tc->flags);
 }
 
@@ -659,6 +687,7 @@ struct tc_thread *tc_thread_new(void (*func)(void *), void *data, char* name)
 	spin_lock_init(&tc->running);
 	tc->flags = 0;
 	event_list_init(&tc->pending);
+	tc->worker_nr = -1;
 
 	spin_lock(&sched.lock);
 	LIST_INSERT_HEAD(&sched.threads, tc, tc_chain);
@@ -690,6 +719,7 @@ void tc_threads_new(struct tc_threads *threads, void (*func)(void *), void *data
 		LIST_INSERT_HEAD(threads, tc, threads_chain);
 		tc->flags |= TF_THREADS;
 		spin_unlock(&sched.lock);
+		tc->worker_nr = i;
 	}
 }
 
