@@ -729,14 +729,22 @@ void tc_threads_new(struct tc_threads *threads, void (*func)(void *), void *data
 enum tc_rv tc_threads_wait(struct tc_threads *threads)
 {
 	struct tc_thread *tc;
-	enum tc_rv rv;
+	enum tc_rv r, rv = RV_THREAD_NA;
 
 	spin_lock(&sched.lock);
 	while ((tc = LIST_FIRST(threads))) {
 		spin_unlock(&sched.lock);
-		rv = tc_thread_wait(tc);
-		if (rv != RV_OK)
-			return rv;
+		r = tc_thread_wait(tc);
+		switch(r) {
+		case RV_INTR:
+			return r;
+		case RV_OK:
+			if (rv == RV_THREAD_NA)
+		case RV_FAILED:
+				rv = r;
+		case RV_THREAD_NA:
+			break;
+		}
 		spin_lock(&sched.lock);
 	}
 	spin_unlock(&sched.lock);
