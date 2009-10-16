@@ -663,7 +663,7 @@ void tc_setup(void *data)
 	tc_die();
 }
 
-struct tc_thread *tc_thread_new(void (*func)(void *), void *data, char* name)
+static struct tc_thread *_tc_thread_new(void (*func)(void *), void *data, char* name)
 {
 	struct tc_thread *tc;
 	struct setup_info *i;
@@ -695,8 +695,6 @@ struct tc_thread *tc_thread_new(void (*func)(void *), void *data, char* name)
 	spin_lock(&sched.lock);
 	LIST_INSERT_HEAD(&sched.threads, tc, tc_chain);
 	spin_unlock(&sched.lock);
-	add_event_cr(&tc->e, 0, EF_READY, tc);           /* removed in the tc_scheduler */
-	iwi_immediate();
 
 	return tc;
 
@@ -708,6 +706,18 @@ fail1:
 	return NULL;
 }
 
+struct tc_thread *tc_thread_new(void (*func)(void *), void *data, char* name)
+{
+	struct tc_thread *tc = _tc_thread_new(func, data, name);
+
+	if (tc) {
+		add_event_cr(&tc->e, 0, EF_READY, tc);
+		iwi_immediate();
+	}
+
+	return tc;
+}
+
 void tc_threads_new(struct tc_threads *threads, void (*func)(void *), void *data, char* name)
 {
 	struct tc_thread *tc;
@@ -717,13 +727,17 @@ void tc_threads_new(struct tc_threads *threads, void (*func)(void *), void *data
 	LIST_INIT(threads);
 	for (i = 0; i < sched.nr_of_workers; i++) {
 		asprintf(&ename, name, i);
-		tc = tc_thread_new(func, data, ename);
+		tc = _tc_thread_new(func, data, ename);
+		if (!tc)
+			continue;
+		tc->flags |= TF_THREADS | TF_FREE_NAME;
+		tc->worker_nr = i;
 		spin_lock(&sched.lock);
 		LIST_INSERT_HEAD(threads, tc, threads_chain);
-		tc->flags |= TF_THREADS | TF_FREE_NAME;
 		spin_unlock(&sched.lock);
-		tc->worker_nr = i;
+		add_event_cr(&tc->e, 0, EF_READY, tc);
 	}
+	iwi_immediate();
 }
 
 enum tc_rv tc_threads_wait(struct tc_threads *threads)
