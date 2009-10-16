@@ -60,8 +60,9 @@ struct tc_signal_sub {
 };
 
 enum thread_flags {
-	TF_THREADS = 1 << 0, /* is on threads chain*/
-	TF_RUNNING = 1 << 1,
+	TF_THREADS =   1 << 0, /* is on threads chain*/
+	TF_RUNNING =   1 << 1,
+	TF_FREE_NAME = 1 << 2,
 };
 
 struct tc_thread {
@@ -254,6 +255,8 @@ void tc_thread_free(struct tc_thread *tc)
 	tc_waitq_unregister(&tc->exit_waiters);
 	cr_delete(tc->cr);
 	tc->cr = NULL;
+	if (tc->flags & TF_FREE_NAME)
+		free(tc->name);
 	free(tc);
 }
 
@@ -717,7 +720,7 @@ void tc_threads_new(struct tc_threads *threads, void (*func)(void *), void *data
 		tc = tc_thread_new(func, data, ename);
 		spin_lock(&sched.lock);
 		LIST_INSERT_HEAD(threads, tc, threads_chain);
-		tc->flags |= TF_THREADS;
+		tc->flags |= TF_THREADS | TF_FREE_NAME;
 		spin_unlock(&sched.lock);
 		tc->worker_nr = i;
 	}
