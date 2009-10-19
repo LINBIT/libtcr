@@ -1,7 +1,5 @@
 #define _GNU_SOURCE /* for asprintf() */
 
-#include "config.h"
-
 #include <sys/epoll.h>
 #include <unistd.h>
 #include <fcntl.h>

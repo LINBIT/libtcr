@@ -1,8 +1,6 @@
 #ifndef THREADED_CR_H
 #define THREADED_CR_H
 
-#include "config.h"
-
 #include <sys/queue.h>
 #include <stddef.h>
 #include <pthread.h>
