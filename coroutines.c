@@ -15,6 +15,8 @@
 
 #define STACK_ALIGN 16
 
+int swapcontext_fast(ucontext_t *oucp, ucontext_t *ucp);
+
 struct coroutine {
 	void* uptr;               /* is first by intention. so we can keep coroutine opaque */
 	struct coroutine *caller; /* second by intention. */
@@ -119,7 +121,7 @@ void cr_call(struct coroutine *cr)
 	cr->caller = previous;
 	__cr_current = cr;
 
-	if (swapcontext(&previous->ctx, &cr->ctx)) {
+	if (swapcontext_fast(&previous->ctx, &cr->ctx)) {
 		fprintf(stderr, "swapcontext() failed.\n");
 		exit(1);
 	}
