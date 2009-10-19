@@ -523,7 +523,7 @@ void tc_init()
 
 static void *worker_pthread(void *arg)
 {
-	int nr = (int)arg;
+	int nr = (int)(long)arg;
 
 	tc_worker_init(nr);
 	tc_thread_wait(tc_main); /* calls tc_scheduler() */
@@ -549,7 +549,7 @@ void tc_run(void (*func)(void *), void *data, char* name, int nr_of_workers)
 
 	threads[0] = pthread_self(); /* actually unused */
 	for (i = 1; i < nr_of_workers; i++)
-		pthread_create(threads + i, NULL, worker_pthread, (void*)i);
+		pthread_create(threads + i, NULL, worker_pthread, (void*)(long)i);
 
 	tc_thread_wait(tc_main); /* calls tc_scheduler() */
 
