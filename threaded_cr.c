@@ -3,15 +3,6 @@
 #include "config.h"
 
 #include <sys/epoll.h>
-#ifdef HAVE_SYS_EVENTFD_H
-#include <sys/eventfd.h>
-#else
-#include <stdint.h>
-typedef uint64_t eventfd_t;
-extern int eventfd (int __count, int __flags);
-extern int eventfd_read (int __fd, eventfd_t *__value);
-extern int eventfd_write (int __fd, eventfd_t value);
-#endif
 #include <unistd.h>
 #include <fcntl.h>
 #include <pthread.h>
@@ -21,38 +12,13 @@ extern int eventfd_write (int __fd, eventfd_t value);
 #include <stdarg.h>
 #include <assert.h>
 
+#include "compat.h"
 #include "atomic.h"
 #include "spinlock.h"
 #include "coroutines.h"
 #include "threaded_cr.h"
 
 #define DEFAULT_STACK_SIZE (1024 * 16)
-
-#ifndef HAVE_TIMERFD_CREATE
-#include <sys/syscall.h>
-int timerfd_create (clockid_t __clock_id, int __flags)
-{
-	return syscall(SYS_timerfd_create, __clock_id, __flags);
-}
-#endif
-
-#ifndef HAVE_TIMERFD_SETTIME
-#include <sys/syscall.h>
-extern int timerfd_settime (int __ufd, int __flags,
-                            __const struct itimerspec *__utmr,
-                            struct itimerspec *__otmr)
-{
-	return syscall(SYS_timerfd_settime, __ufd, __flags, __utmr, __otmr);
-}
-#endif
-
-#ifndef HAVE_TIMERFD_GETTIME
-#include <sys/syscall.h>
-extern int timerfd_gettime (int __ufd, struct itimerspec *__otmr)
-{
-	return syscall(SYS_timerfd_gettime, __ufd, __otmr);
-}
-#endif
 
 struct tc_signal_sub {
 	LIST_ENTRY(tc_signal_sub) se_chain;

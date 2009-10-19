@@ -6,17 +6,8 @@
 #include <sys/queue.h>
 #include <stddef.h>
 #include <pthread.h>
-#ifdef HAVE_SYS_TIMERFD_H
-#include <sys/timerfd.h>
-#else
-#include <time.h>
-extern int timerfd_create (clockid_t __clock_id, int __flags);
-extern int timerfd_settime (int __ufd, int __flags,
-                            __const struct itimerspec *__utmr,
-                            struct itimerspec *__otmr);
-extern int timerfd_gettime (int __ufd, struct itimerspec *__otmr);
-#endif
 
+#include "compat.h"
 #include "atomic.h"
 #include "spinlock.h"
 #include "coroutines.h"
