@@ -30,14 +30,14 @@ enum thread_flags {
 };
 
 struct tc_thread {
-	char *name;		/* Leafe that first, for debugging spinlocks */
+	char *name;		/* Leave that first, for debugging spinlocks */
 	LIST_ENTRY(tc_thread) tc_chain;      /* list of all threads*/
 	LIST_ENTRY(tc_thread) threads_chain; /* list of thrads created with one call to tc_threads_new() */
 	struct coroutine *cr;
 	struct tc_waitq exit_waiters;
 	atomic_t refcnt;
 	spinlock_t running;
-	unsigned int flags; /* flags protected by pending.lock */
+	enum thread_flags flags; /* flags protected by pending.lock */
 	struct event_list pending;
 	struct event e;  /* Used during start and stop. */
 	int worker_nr;
@@ -320,8 +320,13 @@ static int _run_immediate(struct tc_thread *not_for_tc, int nr)
 		switch (e->flags) {
 		case EF_READY:
 		case EF_SIGNAL:
+			if (not_for_tc) {
+				spin_lock(&not_for_tc->pending.lock);
+				not_for_tc->flags &= ~TF_RUNNING;
+				spin_unlock(&not_for_tc->pending.lock);
+			}
 			switch_to(tc);
-			return 1; /* must cause tc_schedulre() to return! */
+			return 1; /* must cause tc_scheduler() to return! */
 		case EF_EXITING:
 			tc_thread_free(e->tc);
 			spin_lock(&sched.immediate.lock);
@@ -369,7 +374,7 @@ void tc_sched_yield()
 	struct tc_thread *tc = tc_current();
 	struct event e;
 
-	add_event_cr(&e, 0, EF_READY, tc); /* use tc->e ? */
+	add_event_cr(&e, 0, EF_READY, tc);
 	if (!run_immediate(tc))
 		remove_event(&e);
 }
@@ -392,9 +397,6 @@ void tc_scheduler(void)
 	}
 	tc->flags &= ~TF_RUNNING;
 	spin_unlock(&tc->pending.lock);
-
-	/* if (run_immediate(tc)) moved to begin of scheduler_part2(). Caused starvation here.
-	   return; */
 
 	_switch_to(&worker.sched_p2); /* always -> scheduler_part2()*/
 }

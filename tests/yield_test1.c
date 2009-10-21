@@ -28,6 +28,6 @@ static void starter(void *unused)
 
 int main()
 {
-	tc_run(starter, NULL, "test", 2);
+	tc_run(starter, NULL, "test", 1);
 	return 0;
 }
