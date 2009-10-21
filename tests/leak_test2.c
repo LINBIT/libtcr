@@ -25,15 +25,15 @@ void drbd_connection(void *unused)
 
 	fprintf(stderr, "DRBD reader %d started.\n", my_thread_no);
 
-	ed = tc_signal_enable(&the_drbd_signal);
-	es = tc_signal_enable(&the_signal);
+	ed = tc_signal_subscribe(&the_drbd_signal);
+	es = tc_signal_subscribe(&the_signal);
 
 	tc_sleep(CLOCK_MONOTONIC, 0, 10000000);
 
 	fprintf(stderr, "%d: ending DRBD connection\n", my_thread_no);
 
-	tc_signal_disable(&the_signal, es);
-	tc_signal_disable(&the_drbd_signal, ed);
+	tc_signal_unsubscribe(&the_signal, es);
+	tc_signal_unsubscribe(&the_drbd_signal, ed);
 
 	tc_signal_fire(&the_drbd_signal);
 	//tc_signal_fire(&the_drbd_signal);
@@ -53,13 +53,13 @@ void accepter(void *unused)
 	struct tc_signal_sub *e;
 
 	fprintf(stderr, "starting accepter\n");
-	e = tc_signal_enable(&the_drbd_signal);
+	e = tc_signal_subscribe(&the_drbd_signal);
 
 	the_writer = tc_thread_new(writer, NULL, "writer");
 	while (tc_thread_wait(the_writer) == RV_INTR) {
 		fprintf(stderr, "RV_INTR in tc_thread_wait(%p)\n", the_writer);
 	}
-	tc_signal_disable(&the_drbd_signal, e);
+	tc_signal_unsubscribe(&the_drbd_signal, e);
 	fprintf(stderr, "ending accepter\n");
 }
 
@@ -74,10 +74,10 @@ static void starter(void *unused)
 
 	while (1) {
 		the_accepter = tc_thread_new(accepter, NULL, "accepter");
-		tc_threads_new(&threads, drbd_connection, NULL, "DRBD conn %d");
-		fprintf(stderr, "into tc_threads_wait\n");
-		tc_threads_wait(&threads);
-		fprintf(stderr, "out of tc_threads_wait\n");
+		tc_thread_pool_new(&threads, drbd_connection, NULL, "DRBD conn %d");
+		fprintf(stderr, "into tc_thread_pool_wait\n");
+		tc_thread_pool_wait(&threads);
+		fprintf(stderr, "out of tc_thread_pool_wait\n");
 
 		fprintf(stderr, "into tc_thread_wait accepter\n");
 		tc_thread_wait(the_accepter);

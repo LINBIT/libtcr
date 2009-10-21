@@ -93,11 +93,11 @@ enum tc_rv tc_thread_wait(struct tc_thread *tc);
 void tc_die();
 
 /* Bundles of threads
-   tc_threads_new() creates a tc_thread instance of the supplied function on
+   tc_thread_pool_new() creates a tc_thread instance of the supplied function on
    every worker.
  */
-void tc_threads_new(struct tc_threads *threads, void (*func)(void *), void *data, char* name);
-enum tc_rv tc_threads_wait(struct tc_threads *threads);
+void tc_thread_pool_new(struct tc_threads *threads, void (*func)(void *), void *data, char* name);
+enum tc_rv tc_thread_pool_wait(struct tc_threads *threads);
 
 /* FDs
    Register each fd you want to wait on. if there are multiple concurrent
@@ -119,7 +119,7 @@ static inline int tc_fd(struct tc_fd *tcfd)
 void tc_mutex_init(struct tc_mutex *m);
 enum tc_rv tc_mutex_lock(struct tc_mutex *m);
 void tc_mutex_unlock(struct tc_mutex *m);
-void tc_mutex_unregister(struct tc_mutex *m);
+void tc_mutex_destroy(struct tc_mutex *m);
 enum tc_rv tc_mutex_trylock(struct tc_mutex *m);
 
 /* Signals
@@ -130,13 +130,13 @@ enum tc_rv tc_mutex_trylock(struct tc_mutex *m);
    A tc_thread that enabled a signal, and exits for an other reason, than
    being waked up by that signal, should disable that signal again.
    I.e. you should disable all signals in the exit path, that got enabled
-   tc_signal_disable is idempotent.
+   tc_signal_unsubscribe is idempotent.
 */
 void tc_signal_init(struct tc_signal *s);
-struct tc_signal_sub *tc_signal_enable(struct tc_signal *s);
-void tc_signal_disable(struct tc_signal *s, struct tc_signal_sub *ss);
+struct tc_signal_sub *tc_signal_subscribe(struct tc_signal *s);
+void tc_signal_unsubscribe(struct tc_signal *s, struct tc_signal_sub *ss);
 void tc_signal_fire(struct tc_signal *s);
-void tc_signal_unregister(struct tc_signal *s);
+void tc_signal_destroy(struct tc_signal *s);
 
 /* Waitqueues.*/
 void tc_waitq_init(struct tc_waitq *wq);

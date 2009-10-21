@@ -32,7 +32,7 @@ enum thread_flags {
 struct tc_thread {
 	char *name;		/* Leave that first, for debugging spinlocks */
 	LIST_ENTRY(tc_thread) tc_chain;      /* list of all threads*/
-	LIST_ENTRY(tc_thread) threads_chain; /* list of thrads created with one call to tc_threads_new() */
+	LIST_ENTRY(tc_thread) threads_chain; /* list of thrads created with one call to tc_thread_pool_new() */
 	struct coroutine *cr;
 	struct tc_waitq exit_waiters;
 	atomic_t refcnt;
@@ -678,7 +678,7 @@ struct tc_thread *tc_thread_new(void (*func)(void *), void *data, char* name)
 	return tc;
 }
 
-void tc_threads_new(struct tc_threads *threads, void (*func)(void *), void *data, char* name)
+void tc_thread_pool_new(struct tc_threads *threads, void (*func)(void *), void *data, char* name)
 {
 	struct tc_thread *tc;
 	int i;
@@ -700,7 +700,7 @@ void tc_threads_new(struct tc_threads *threads, void (*func)(void *), void *data
 	iwi_immediate();
 }
 
-enum tc_rv tc_threads_wait(struct tc_threads *threads)
+enum tc_rv tc_thread_pool_wait(struct tc_threads *threads)
 {
 	struct tc_thread *tc;
 	enum tc_rv r, rv = RV_THREAD_NA;
@@ -878,7 +878,7 @@ enum tc_rv tc_mutex_trylock(struct tc_mutex *m)
 	return RV_FAILED;
 }
 
-void tc_mutex_unregister(struct tc_mutex *m)
+void tc_mutex_destroy(struct tc_mutex *m)
 {
 	tc_waitq_unregister(&m->wq);
 }
@@ -1019,13 +1019,13 @@ static void _signal_gets_delivered(struct event *e)
 	_tc_waitq_prepare_to_wait(&e->signal->wq, e, e->tc);
 }
 
-struct tc_signal_sub *tc_signal_enable(struct tc_signal *s)
+struct tc_signal_sub *tc_signal_subscribe(struct tc_signal *s)
 {
 	struct tc_signal_sub *ss;
 
 	ss = malloc(sizeof(struct tc_signal_sub));
 	if (!ss)
-		msg_exit(1, "malloc of tc_signal_sub failed in tc_signal_enable\n");
+		msg_exit(1, "malloc of tc_signal_sub failed in tc_signal_subscribe\n");
 
 	/* printf(" (%d) signal_enabled e=%p for %s\n", worker.nr, e, tc_current()->name); */
 
@@ -1040,7 +1040,7 @@ struct tc_signal_sub *tc_signal_enable(struct tc_signal *s)
 	return ss;
 }
 
-void tc_signal_disable(struct tc_signal *s, struct tc_signal_sub *ss)
+void tc_signal_unsubscribe(struct tc_signal *s, struct tc_signal_sub *ss)
 {
 	remove_event(&ss->event);
 	spin_lock(&s->wq.waiters.lock);
@@ -1082,7 +1082,7 @@ static void signal_cancel_pending()
 }
 
 
-void tc_signal_unregister(struct tc_signal *s)
+void tc_signal_destroy(struct tc_signal *s)
 {
 	struct tc_signal_sub *ss;
 

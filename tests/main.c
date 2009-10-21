@@ -132,7 +132,7 @@ static void unix_socket_reader(void *data)
 	int rr;
 	void *m;
 
-	e = tc_signal_enable(ri->all_exit);
+	e = tc_signal_subscribe(ri->all_exit);
 
 	while(1) {
 		if (tc_wait_fd(EPOLLIN, ri->in) != RV_OK)
@@ -157,7 +157,7 @@ static void unix_socket_reader(void *data)
 		fflush(stdout);
 	}
 
-	tc_signal_disable(ri->all_exit, e);
+	tc_signal_unsubscribe(ri->all_exit, e);
 }
 
 static void stdin_reader(void *data)
@@ -186,7 +186,7 @@ static void stdin_reader(void *data)
 	ri.mp = &mp;
 	ri.all_exit = &all_exit;
 	ri.in = tc_register_fd(fd);
-	tc_threads_new(&sr, unix_socket_reader, &ri, "unix_socket_reader_%d");
+	tc_thread_pool_new(&sr, unix_socket_reader, &ri, "unix_socket_reader_%d");
 
 	tcfd = tc_register_fd(fileno(stdin));
 	while(1) {
@@ -205,8 +205,8 @@ static void stdin_reader(void *data)
 
 	tc_signal_fire(&all_exit);
 	tc_unregister_fd(tcfd);
-	tc_threads_wait(&sr);
-	tc_signal_unregister(&all_exit);
+	tc_thread_pool_wait(&sr);
+	tc_signal_destroy(&all_exit);
 }
 
 int main(int argc, char** argv)

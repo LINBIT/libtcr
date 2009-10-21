@@ -25,15 +25,15 @@ void drbd_connection(void *unused)
 
 	fprintf(stderr, "DRBD reader %d started.\n", my_thread_no);
 
-	ed = tc_signal_enable(&the_drbd_signal);
-	es = tc_signal_enable(&the_signal);
+	ed = tc_signal_subscribe(&the_drbd_signal);
+	es = tc_signal_subscribe(&the_signal);
 
 	tc_sleep(CLOCK_MONOTONIC, 0, 10000000);
 
 	fprintf(stderr, "%d: ending DRBD connection\n", my_thread_no);
 
-	tc_signal_disable(&the_signal, ed);
-	tc_signal_disable(&the_drbd_signal, es);
+	tc_signal_unsubscribe(&the_signal, ed);
+	tc_signal_unsubscribe(&the_drbd_signal, es);
 
 	tc_signal_fire(&the_drbd_signal);
 	//tc_signal_fire(&the_drbd_signal);
@@ -48,10 +48,10 @@ static void starter(void *unused)
 	tc_signal_init(&the_signal);
 
 	while (1) {
-		tc_threads_new(&threads, drbd_connection, NULL, "DRBD conn %d");
-		fprintf(stderr, "into tc_threads_wait\n");
-		tc_threads_wait(&threads);
-		fprintf(stderr, "out of tc_threads_wait\n");
+		tc_thread_pool_new(&threads, drbd_connection, NULL, "DRBD conn %d");
+		fprintf(stderr, "into tc_thread_pool_wait\n");
+		tc_thread_pool_wait(&threads);
+		fprintf(stderr, "out of tc_thread_pool_wait\n");
 
 		tc_sleep(CLOCK_MONOTONIC, 0, 10000000);
 	}
