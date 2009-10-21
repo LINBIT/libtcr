@@ -1,5 +1,5 @@
-CFLAGS  += -I../.. -I.. -g -DSPINLOCK_DEBUG
-LDFLAGS += -L.. -ltc -lpthread
+CFLAGS  += -I..
+LDFLAGS += -L../tc -ltc -lpthread
 
 TARGETS := main tc_mutex_test1 tc_mutex_test2 tc_waitq_test tc_waitq_test2 tc_waitq_test3 tc_waitq_test5 leak_test leak_test2 yield_test yield_test1
 
@@ -16,4 +16,4 @@ all: $(TARGETS)
 clean:
 	rm -f *.o $(TARGETS)
 
-$(TARGETS): ../libtc.a
+$(TARGETS): ../tc/libtc.a

@@ -1,5 +1,3 @@
-#include "threaded_cr.h"
-#include "atomic.h"
 #include <sys/epoll.h>
 #include <syslog.h>
 #include <unistd.h>
@@ -10,6 +8,8 @@
 #include <semaphore.h>
 #include <arpa/inet.h>
 
+#include "tc/threaded_cr.h"
+#include "tc/atomic.h"
 
 struct tc_waitq memory_wq;
 

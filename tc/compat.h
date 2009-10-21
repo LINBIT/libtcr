@@ -1,7 +1,7 @@
 #ifndef COMPAT_H
 #define COMPAT_H
 
-#include "config.h"
+#include "../config.h"
 
 #include <sys/syscall.h>
 #include <unistd.h>
@@ -41,6 +41,10 @@ static inline int timerfd_gettime (int __ufd, struct itimerspec *__otmr)
 {
 	return syscall(SYS_timerfd_gettime, __ufd, __otmr);
 }
+#endif
+
+#ifndef HAVE_MAP_STACK
+#define MAP_STACK       0x20000
 #endif
 
 #endif
