@@ -184,7 +184,7 @@ static void _add_event(struct event *e, struct event_list *el, struct tc_thread 
 	e->tc = tc;
 	e->el = el;
 
-	CIRCLEQ_INSERT_HEAD(&el->events, e, e_chain);
+	CIRCLEQ_INSERT_TAIL(&el->events, e, e_chain);
 }
 
 void add_event_fd(struct event *e, __uint32_t ep_events, enum tc_event_flag flags, struct tc_fd *tcfd)
@@ -298,7 +298,7 @@ static struct tc_thread *run_or_queue(struct event *e)
 	return tc;
 }
 
-static int _run_immediate(struct tc_thread *not_for_tc, int nr)
+static int _run_immediate(int nr)
 {
 	struct event *e;
 	struct tc_thread* tc;
@@ -306,8 +306,6 @@ static int _run_immediate(struct tc_thread *not_for_tc, int nr)
 	spin_lock(&sched.immediate.lock);
 	worker.woken_by_tcfd  = NULL;
 	CIRCLEQ_FOREACH(e, &sched.immediate.events, e_chain) {
-		if (e->tc == not_for_tc)
-			continue;
 		if (nr && e->tc->worker_nr != nr)
 			continue;
 		_remove_event(e, &sched.immediate);
@@ -320,11 +318,6 @@ static int _run_immediate(struct tc_thread *not_for_tc, int nr)
 		switch (e->flags) {
 		case EF_READY:
 		case EF_SIGNAL:
-			if (not_for_tc) {
-				spin_lock(&not_for_tc->pending.lock);
-				not_for_tc->flags &= ~TF_RUNNING;
-				spin_unlock(&not_for_tc->pending.lock);
-			}
 			switch_to(tc);
 			return 1; /* must cause tc_scheduler() to return! */
 		case EF_EXITING:
@@ -341,11 +334,11 @@ static int _run_immediate(struct tc_thread *not_for_tc, int nr)
 	return 0;
 }
 
-static int run_immediate(struct tc_thread *not_for_tc)
+static int run_immediate()
 {
-	if (_run_immediate(not_for_tc, worker.nr))
+	if (_run_immediate(worker.nr))
 		return 1;
-	return _run_immediate(not_for_tc, 0);
+	return _run_immediate(0);
 }
 
 static void process_immediate()
@@ -356,7 +349,7 @@ static void process_immediate()
 		msg_exit(1, "read() failed with %m");
 
 	arm_immediate(EPOLL_CTL_MOD);
-	while(run_immediate(NULL))
+	while(run_immediate())
 		;
 }
 
@@ -375,7 +368,8 @@ void tc_sched_yield()
 	struct event e;
 
 	add_event_cr(&e, 0, EF_READY, tc);
-	if (!run_immediate(tc))
+	tc_scheduler();
+	if (worker.woken_by_event != &e)
 		remove_event(&e);
 }
 
@@ -417,7 +411,7 @@ static void scheduler_part2()
 	   would become active twice, when it gets woken up on a different worker */
 
 	while(1) {
-		run_immediate(NULL);
+		run_immediate();
 
 		do {
 			er = epoll_wait(sched.efd, &epe, 1, -1);
