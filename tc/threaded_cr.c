@@ -83,11 +83,6 @@ static void signal_cancel_pending();
 static void _synchronize_world();
 static void synchronize_world();
 
-static inline struct tc_thread *tc_current()
-{
-	return (struct tc_thread *)cr_uptr(cr_current());
-}
-
 void msg_exit(int code, const char *fmt, ...) __attribute__ ((__noreturn__));
 void msg_exit(int code, const char *fmt, ...)
 {

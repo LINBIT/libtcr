@@ -91,6 +91,14 @@ void tc_sched_yield();
 struct tc_thread *tc_thread_new(void (*func)(void *), void *data, char* name);
 enum tc_rv tc_thread_wait(struct tc_thread *tc);
 void tc_die();
+static inline struct tc_thread *tc_current()
+{
+	return (struct tc_thread *)cr_uptr(cr_current());
+}
+static inline char *tc_thread_name(struct tc_thread *tc)
+{
+	return *(char **)tc;
+}
 
 /* Bundles of threads
    tc_thread_pool_new() creates a tc_thread instance of the supplied function on
