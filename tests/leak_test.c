@@ -42,7 +42,7 @@ void drbd_connection(void *unused)
 
 static void starter(void *unused)
 {
-	struct tc_threads threads;
+	struct tc_thread_pool threads;
 
 	tc_signal_init(&the_drbd_signal);
 	tc_signal_init(&the_signal);

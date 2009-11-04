@@ -23,7 +23,7 @@ void worker(void *unused)
 
 void starter(void *unused)
 {
-	struct tc_threads t;
+	struct tc_thread_pool t;
 
 	while (1) {
 		tc_mutex_init(&m);

@@ -66,7 +66,7 @@ struct tc_signal {
 };
 
 struct tc_thread;
-LIST_HEAD(tc_threads, tc_thread);
+LIST_HEAD(tc_thread_pool, tc_thread);
 
 /* Threaded coroutines
  tc_run() is the most convenient way to initialize the threaded coroutines
@@ -96,14 +96,14 @@ void tc_die();
    tc_thread_pool_new() creates a tc_thread instance of the supplied function on
    every worker.
  */
-void tc_thread_pool_new(struct tc_threads *threads, void (*func)(void *), void *data, char* name);
-enum tc_rv tc_thread_pool_wait(struct tc_threads *threads);
+void tc_thread_pool_new(struct tc_thread_pool *threads, void (*func)(void *), void *data, char* name);
+enum tc_rv tc_thread_pool_wait(struct tc_thread_pool *threads);
 
 /* FDs
    Register each fd you want to wait on. if there are multiple concurrent
-   tc_threads waiting in one tc_wait_fd() on the same tcfd, only one will
+   tc_thread_pool waiting in one tc_wait_fd() on the same tcfd, only one will
    get woken up. That one should as soon as possible call tc_rearm, so that
-   the next tc_threads will get woken up, to continue consuming data
+   the next tc_thread_pool will get woken up, to continue consuming data
    from the fd.
  */
 struct tc_fd *tc_register_fd(int fd);
@@ -124,7 +124,7 @@ enum tc_rv tc_mutex_trylock(struct tc_mutex *m);
 
 /* Signals
    After a signal has been initialized , it might be enabled in multiple
-   tc_threads. When a signal gets fired, all tc_threads that enabled that
+   tc_thread_pool. When a signal gets fired, all tc_threads that enabled that
    signal will get interrupted. I.e. Any sleeping tc_XXX function will 
    return RV_INTR instead of RV_OK once.
    A tc_thread that enabled a signal, and exits for an other reason, than

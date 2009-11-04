@@ -166,7 +166,7 @@ static void stdin_reader(void *data)
 	struct tc_signal all_exit;
 	struct mempool mp;
 	struct tc_fd *tcfd;
-	struct tc_threads sr;
+	struct tc_thread_pool sr;
 	char b[10];
 	int rr;
 	int fd, lfd;

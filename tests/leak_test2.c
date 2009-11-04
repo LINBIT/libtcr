@@ -66,7 +66,7 @@ void accepter(void *unused)
 
 static void starter(void *unused)
 {
-	struct tc_threads threads;
+	struct tc_thread_pool threads;
 	struct tc_thread *the_accepter;
 
 	tc_signal_init(&the_drbd_signal);

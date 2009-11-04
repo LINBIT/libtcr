@@ -31,7 +31,7 @@ void worker(void *ttf_vp)
 
 void starter(void *unused)
 {
-	struct tc_threads t;
+	struct tc_thread_pool t;
 	struct tc_fd *the_tc_fd = tc_register_fd(0);
 
 	tc_mutex_init(&m);

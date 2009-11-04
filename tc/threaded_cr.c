@@ -63,7 +63,7 @@ enum inter_worker_interrupts {
 
 struct scheduler {
 	spinlock_t lock;           /* protects the threads list */
-	struct tc_threads threads;
+	struct tc_thread_pool threads;
 	struct event_list immediate;
 	int nr_of_workers;
 	int efd;                   /* epoll fd */
@@ -678,7 +678,7 @@ struct tc_thread *tc_thread_new(void (*func)(void *), void *data, char* name)
 	return tc;
 }
 
-void tc_thread_pool_new(struct tc_threads *threads, void (*func)(void *), void *data, char* name)
+void tc_thread_pool_new(struct tc_thread_pool *threads, void (*func)(void *), void *data, char* name)
 {
 	struct tc_thread *tc;
 	int i;
@@ -700,7 +700,7 @@ void tc_thread_pool_new(struct tc_threads *threads, void (*func)(void *), void *
 	iwi_immediate();
 }
 
-enum tc_rv tc_thread_pool_wait(struct tc_threads *threads)
+enum tc_rv tc_thread_pool_wait(struct tc_thread_pool *threads)
 {
 	struct tc_thread *tc;
 	enum tc_rv r, rv = RV_THREAD_NA;
