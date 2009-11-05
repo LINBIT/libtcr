@@ -162,6 +162,16 @@ enum tc_rv tc_sleep(int clockid, time_t sec, long nsec);
 void tc_waitq_prepare_to_wait(struct tc_waitq *wq, struct event *e);
 int tc_waitq_finish_wait(struct tc_waitq *wq, struct event *e);
 
+#ifdef WAIT_DEBUG
+extern __thread char *_caller_file;
+extern __thread int _caller_line;
+#define SET_CALLER   _caller_file = __FILE__, _caller_line = __LINE__
+#define UNSET_CALLER _caller_file = "untracked tc_scheduler() call", _caller_line = 0
+#else
+#define SET_CALLER
+#define UNSET_CALLER
+#endif
+
 #define __tc_wait_event(wq, cond, rv)					\
 do {									\
 	struct event e;							\
@@ -182,14 +192,27 @@ do {									\
 #define tc_waitq_wait_event(wq, cond)			\
 ({							\
 	enum tc_rv rv = RV_OK;				\
+	SET_CALLER;					\
 	if (!(cond))					\
 		__tc_wait_event(wq, cond, rv);		\
+	UNSET_CALLER;					\
 	rv;						\
  })
 
 
 #define container_of(ptr, type, member) ({                      \
-        const typeof( ((type *)0)->member ) *__mptr = (ptr);    \
-        (type *)( (char *)__mptr - offsetof(type,member) );})
+	const typeof( ((type *)0)->member ) *__mptr = (ptr);    \
+	(type *)( (char *)__mptr - offsetof(type,member) );})
 
-#endif
+
+#ifdef WAIT_DEBUG
+#define tc_sched_yield()	({ SET_CALLER; tc_sched_yield(); UNSET_CALLER; })
+#define tc_wait_fd(E, T)	({ SET_CALLER; tc_wait_fd(E, T); UNSET_CALLER; })
+#define tc_mutex_lock(M)	({ SET_CALLER; tc_mutex_lock(M); UNSET_CALLER; })
+#define tc_thread_wait(T)	({ SET_CALLER; tc_thread_wait(T); UNSET_CALLER; })
+#define tc_waitq_wait(W)	({ SET_CALLER; tc_waitq_wait(W); UNSET_CALLER; })
+#define tc_thread_pool_wait(P)	({ SET_CALLER; tc_thread_pool_wait(P); UNSET_CALLER; })
+#define tc_sleep(C, S, N)	({ SET_CALLER; tc_sleep(C, S, N); UNSET_CALLER; })
+#endif /* ifdef WAIT_DEBUG */
+
+#endif /* ifndef THREADED_CR_H */

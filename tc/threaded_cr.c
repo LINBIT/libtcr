@@ -41,6 +41,10 @@ struct tc_thread {
 	struct event_list pending;
 	struct event e;  /* Used during start and stop. */
 	int worker_nr;
+#ifdef WAIT_DEBUG
+	char *sleep_file;
+	int sleep_line;
+#endif
 };
 
 struct setup_info {
@@ -73,6 +77,19 @@ struct scheduler {
 	pthread_barrier_t *sync_b;
 	spinlock_t sync_lock;
 };
+
+#ifdef WAIT_DEBUG
+#undef tc_sched_yield
+#undef tc_wait_fd
+#undef tc_mutex_lock
+#undef tc_thread_wait
+#undef tc_waitq_wait
+#undef tc_thread_pool_wait
+#undef tc_sleep
+
+__thread char *_caller_file = "untracked tc_scheduler() call";
+__thread int _caller_line = 0;
+#endif
 
 static struct scheduler sched;
 static struct tc_thread *tc_main;
@@ -285,6 +302,11 @@ static struct tc_thread *run_or_queue(struct event *e)
 	tc->flags |= TF_RUNNING;
 	spin_unlock(&tc->pending.lock);
 
+#ifdef WAIT_DEBUG
+	tc->sleep_file = "running";
+	tc->sleep_line = 0;
+#endif
+
 	if (e->flags == EF_SIGNAL)
 		_signal_gets_delivered(e);
 
@@ -386,6 +408,11 @@ void tc_scheduler(void)
 	}
 	tc->flags &= ~TF_RUNNING;
 	spin_unlock(&tc->pending.lock);
+
+#ifdef WAIT_DEBUG
+	tc->sleep_file = _caller_file;
+	tc->sleep_line = _caller_line;
+#endif
 
 	_switch_to(&worker.sched_p2); /* always -> scheduler_part2()*/
 }
