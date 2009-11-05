@@ -18,8 +18,6 @@ struct coroutine {
 	void* uptr;               /* is first by intention. so we can keep coroutine opaque */
 	struct coroutine *caller; /* second by intention. */
 	ucontext_t ctx;
-	void *arg;
-	void (*func)(void *);
 };
 
 static __thread struct coroutine co_main;
@@ -34,17 +32,18 @@ void cr_init()
 		exit(1);
 	}
 
-	co_main.arg = NULL;
-	co_main.func = NULL;
 	co_main.uptr = NULL;
 }
 
+/* Arglbargl: Why the hell passes makecontext only integer arguments instead of void*
+ */
 
-static void cr_setup()
+static void cr_setup(int i1, int i2)
 {
-	struct coroutine *cr = __cr_current;
+	void (*func)(void *) = (void *)i1;
+	void *arg = (void *)i2;
 
-	cr->func(cr->arg);
+	func(arg);
 
 	fprintf(stderr, "func() returned.\n");
 	exit(1);
@@ -93,11 +92,9 @@ struct coroutine *cr_create(void (*func)(void *), void *arg, int stack_size)
 	cr->ctx.uc_stack.ss_sp = stack;
 	cr->ctx.uc_stack.ss_size = stack_size + ps;
 	cr->ctx.uc_link = NULL;
-	cr->arg = arg;
-	cr->func = func;
 
 	/* use cr_setup here */
-	makecontext(&cr->ctx, cr_setup, 0);
+	makecontext(&cr->ctx, (void (*)())cr_setup, 2, (int)func, (int)arg);
 
 	return cr;
 }
