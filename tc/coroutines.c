@@ -39,23 +39,26 @@ void cr_init()
 /* Arglbargl: Why the hell passes makecontext only integer arguments instead of void*
  */
 #if (__WORDSIZE == 64)
-static void cr_setup(unsigned int i1, unsigned int i2, unsigned int i3, unsigned int i4)
+static void cr_setup(unsigned int i1, unsigned int i2, unsigned int i3, unsigned int i4,
+	unsigned int i5, unsigned int i6)
 {
-	void (*func)(void *) = (void *)(((unsigned long)i1 << 32) | (unsigned long)i2);
-	void *arg = (void *)(((unsigned long)i3 << 32) | (unsigned long)i4);
+	void (*func)(void *, void *) = (void *)(((unsigned long)i1 << 32) | (unsigned long)i2);
+	void *arg1 = (void *)(((unsigned long)i3 << 32) | (unsigned long)i4);
+	void *arg2 = (void *)(((unsigned long)i5 << 32) | (unsigned long)i6);
 
-	func(arg);
+	func(arg1, arg2);
 
 	fprintf(stderr, "func() returned.\n");
 	exit(1);
 }
 #elif (__WORDSIZE == 32)
-static void cr_setup(unsigned int i1, unsigned int i2)
+static void cr_setup(unsigned int i1, unsigned int i2, unsigned int i3)
 {
-	void (*func)(void *) = (void *)i1;
-	void *arg = (void *)i2;
+	void (*func)(void *, void *) = (void *)i1;
+	void *arg1 = (void *)i2;
+	void *arg2 = (void *)i3;
 
-	func(arg);
+	func(arg1, arg2);
 
 	fprintf(stderr, "func() returned.\n");
 	exit(1);
@@ -64,7 +67,7 @@ static void cr_setup(unsigned int i1, unsigned int i2)
 #error only 32 bits and 64 bits wordsizes considered...
 #endif
 
-struct coroutine *cr_create(void (*func)(void *), void *arg, int stack_size)
+struct coroutine *cr_create(void (*func)(void *, void *), void *arg1, void *arg2, int stack_size)
 {
 	struct coroutine *cr;
 	void *stack;
@@ -109,11 +112,13 @@ struct coroutine *cr_create(void (*func)(void *), void *arg, int stack_size)
 	cr->ctx.uc_link = NULL;
 
 #if (__WORDSIZE == 64)
-	makecontext(&cr->ctx, (void (*)())cr_setup, 4,
+	makecontext(&cr->ctx, (void (*)())cr_setup, 6,
 		    (unsigned int)((unsigned long)func >> 32), (unsigned int)(unsigned long)func,
-		    (unsigned int)((unsigned long)arg >> 32), (unsigned int)(unsigned long)arg);
+		    (unsigned int)((unsigned long)arg1 >> 32), (unsigned int)(unsigned long)arg1,
+		    (unsigned int)((unsigned long)arg2 >> 32), (unsigned int)(unsigned long)arg2);
 #elif (__WORDSIZE == 32)
-	makecontext(&cr->ctx, (void (*)())cr_setup, 2, (unsigned int)func, (unsigned int)arg);
+	makecontext(&cr->ctx, (void (*)())cr_setup, 3, (unsigned int)func, (unsigned int)arg1,
+		    (unsigned int)arg2);
 #endif
 
 	return cr;

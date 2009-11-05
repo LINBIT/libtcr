@@ -47,11 +47,6 @@ struct tc_thread {
 #endif
 };
 
-struct setup_info {
-	void *data;
-	void (*func)(void *);
-};
-
 struct worker_struct {
 	int nr;
 	struct tc_thread main_thread;
@@ -504,7 +499,7 @@ void tc_worker_init(int i)
 	/* LIST_INSERT_HEAD(&sched.threads, &worker.main_thread, tc_chain); */
 
 	asprintf(&worker.sched_p2.name, "sched_%d", i);
-	worker.sched_p2.cr = cr_create(scheduler_part2, NULL, DEFAULT_STACK_SIZE);
+	worker.sched_p2.cr = cr_create(scheduler_part2, NULL, NULL, DEFAULT_STACK_SIZE);
 	if (!worker.sched_p2.cr)
 		msg_exit(1, "allocation of worker.sched_p2 failed\n");
 
@@ -640,20 +635,14 @@ void tc_die()
 	msg_exit(1, "tc_scheduler() returned in tc_die() [flags = %d]\n", &tc->flags);
 }
 
-void tc_setup(void *data)
+void tc_setup(void *arg1, void *arg2)
 {
-	struct setup_info *i = (struct setup_info *)data;
-	struct tc_thread *previous;
-	void (*func)(void *), *func_data;
+	struct tc_thread *previous = (struct tc_thread *)cr_uptr(cr_caller());
+	void (*func)(void *) = arg1;
 
-	previous = (struct tc_thread *)cr_uptr(cr_caller());
 	spin_unlock(&previous->running);
 
-	func_data = i->data;
-	func = i->func;
-	free(i);
-
-	func(func_data);
+	func(arg2);
 
 	tc_die();
 }
@@ -661,22 +650,14 @@ void tc_setup(void *data)
 static struct tc_thread *_tc_thread_new(void (*func)(void *), void *data, char* name)
 {
 	struct tc_thread *tc;
-	struct setup_info *i;
-
-	i = malloc(sizeof(struct setup_info));
-	if (!i)
-		goto fail1;
 
 	tc = malloc(sizeof(struct tc_thread));
 	if (!tc)
 		goto fail2;
 
-	tc->cr = cr_create(tc_setup, i, DEFAULT_STACK_SIZE);
+	tc->cr = cr_create(tc_setup, func, data, DEFAULT_STACK_SIZE);
 	if (!tc->cr)
 		goto fail3;
-
-	i->func = func;
-	i->data = data;
 
 	cr_set_uptr(tc->cr, (void *)tc);
 	tc->name = name;
@@ -696,8 +677,6 @@ static struct tc_thread *_tc_thread_new(void (*func)(void *), void *data, char* 
 fail3:
 	free(tc);
 fail2:
-	free(i);
-fail1:
 	return NULL;
 }
 

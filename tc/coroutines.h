@@ -7,7 +7,7 @@ struct coroutine;
 
 extern __thread struct coroutine *__cr_current;
 
-struct coroutine *cr_create(void (*func)(void *), void *arg, int stack_size);
+struct coroutine *cr_create(void (*func)(void *, void *), void *arg1, void *arg2, int stack_size);
 void cr_call(struct coroutine *cr);
 void cr_return();
 void cr_init();
