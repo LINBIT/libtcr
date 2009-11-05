@@ -1,7 +1,7 @@
 #ifndef COMPAT_H
 #define COMPAT_H
 
-#include "../config.h"
+#include "config.h"
 
 #include <sys/syscall.h>
 #include <unistd.h>

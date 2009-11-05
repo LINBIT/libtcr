@@ -5,7 +5,7 @@
 #include <stddef.h>
 #include <pthread.h>
 
-#include "../config.h"
+#include "config.h"
 #include "compat.h"
 #include "atomic.h"
 #include "spinlock.h"

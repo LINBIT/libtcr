@@ -1,7 +1,7 @@
 #CFLAGS  :=-Wall -O3
 #LDFLAGS :=-lpthread -O3
 
-CFLAGS  :=-Wall -g -DSPINLOCK_DEBUG -DSTACK_OVERFLOW_PROTECTION -DWAIT_DEBUG
+CFLAGS  :=-Wall -g
 LDFLAGS :=-lpthread -g
 
 ####
