@@ -71,6 +71,7 @@ struct scheduler {
 	atomic_t sync_cnt;
 	pthread_barrier_t *sync_b;
 	spinlock_t sync_lock;
+	atomic_t sleeping_workers;
 };
 
 #ifdef WAIT_DEBUG
@@ -360,12 +361,11 @@ static int _run_immediate(int nr)
 
 static int run_immediate()
 {
-	if (_run_immediate(worker.nr))
-		return 1;
-	return _run_immediate(0);
+	while (_run_immediate(worker.nr) || _run_immediate(0))
+		;
 }
 
-static void process_immediate()
+static void rearm_immediate()
 {
 	eventfd_t c;
 
@@ -373,8 +373,6 @@ static void process_immediate()
 		msg_exit(1, "read() failed with %m");
 
 	arm_immediate(EPOLL_CTL_MOD);
-	while(run_immediate())
-		;
 }
 
 static void iwi_immediate()
@@ -382,8 +380,10 @@ static void iwi_immediate()
 	/* Some other worker should please process the queued immediate events. */
 	eventfd_t c = 1;
 
-	if (write(sched.immediate_fd, &c, sizeof(c)) != sizeof(c))
-		msg_exit(1, "write() failed with: %m\n");
+	if (atomic_read(&sched.sleeping_workers)) {
+		if (write(sched.immediate_fd, &c, sizeof(c)) != sizeof(c))
+			msg_exit(1, "write() failed with: %m\n");
+	}
 }
 
 void tc_sched_yield()
@@ -442,9 +442,12 @@ static void scheduler_part2()
 	while(1) {
 		run_immediate();
 
+		atomic_inc(&sched.sleeping_workers);
 		do {
 			er = epoll_wait(sched.efd, &epe, 1, -1);
 		} while (er < 0 && errno == EINTR);
+		atomic_dec(&sched.sleeping_workers);
+
 		if (er < 0)
 			msg_exit(1, "epoll_wait() failed with: %m\n");
 
@@ -453,7 +456,8 @@ static void scheduler_part2()
 			_synchronize_world();
 			continue;
 		case IWI_IMMEDIATE:
-			process_immediate();
+			rearm_immediate();
+			/* run_immediate(); at top of loop. */
 			continue;
 		}
 
@@ -525,6 +529,7 @@ void tc_init()
 
 	spin_lock_init(&sched.sync_lock);
 	atomic_set(&sched.sync_cnt, 0);
+	atomic_set(&sched.sleeping_workers, 0);
 	sched.sync_b = NULL;
 	sched.sync_fd = eventfd(0, 0);
 	if (sched.sync_fd == -1)
