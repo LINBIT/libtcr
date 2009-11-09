@@ -1,7 +1,4 @@
-#CFLAGS  :=-Wall -O3
-#LDFLAGS :=-lpthread -O3
-
-CFLAGS  :=-Wall -g
+CFLAGS  := @CFLAGS@
 LDFLAGS :=-lpthread -g
 
 ####
