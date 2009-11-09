@@ -100,13 +100,25 @@ static void signal_cancel_pending();
 static void _synchronize_world();
 static void synchronize_world();
 
+diagnostic_fn diagnostic = NULL;
+
+int fprintf_stderr(const char *fmt, va_list ap)
+{
+	return vfprintf(stderr, fmt, ap);
+}
+
+void tc_set_diagnostic_fn(diagnostic_fn f)
+{
+	diagnostic = f;
+}
+
 void msg_exit(int code, const char *fmt, ...) __attribute__ ((__noreturn__));
 void msg_exit(int code, const char *fmt, ...)
 {
 	va_list ap;
 
 	va_start(ap, fmt);
-	vfprintf(stderr, fmt, ap);
+	diagnostic(fmt, ap);
 	va_end(ap);
 
 	exit(code);
@@ -508,6 +520,9 @@ void tc_worker_init(int i)
 void tc_init()
 {
 	struct epoll_event epe;
+
+	if (diagnostic == NULL)
+		tc_set_diagnostic_fn(fprintf_stderr);
 
 	event_list_init(&sched.immediate);
 	LIST_INIT(&sched.threads);

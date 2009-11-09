@@ -4,6 +4,7 @@
 #include <sys/queue.h>
 #include <stddef.h>
 #include <pthread.h>
+#include <stdarg.h>
 
 #include "config.h"
 #include "compat.h"
@@ -100,6 +101,9 @@ static inline char *tc_thread_name(struct tc_thread *tc)
 {
 	return *(char **)tc;
 }
+
+typedef int (*diagnostic_fn)(const char *format, va_list ap);
+void tc_set_diagnostic_fn(diagnostic_fn f);
 
 /* Bundles of threads
    tc_thread_pool_new() creates a tc_thread instance of the supplied function on
