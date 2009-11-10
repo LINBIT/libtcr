@@ -589,13 +589,11 @@ void tc_run(void (*func)(void *), void *data, char* name, int nr_of_workers)
 }
 
 
-void tc_rearm()
+void tc_rearm(struct tc_fd *the_tc_fd)
 {
-	if (worker.woken_by_tcfd) {
-		spin_lock(&worker.woken_by_tcfd->events.lock);
-		arm(worker.woken_by_tcfd);
-		spin_unlock(&worker.woken_by_tcfd->events.lock);
-	}
+	spin_lock(&the_tc_fd->events.lock);
+	arm(the_tc_fd);
+	spin_unlock(&the_tc_fd->events.lock);
 }
 
 enum tc_rv tc_wait_fd(__uint32_t ep_events, struct tc_fd *tcfd)

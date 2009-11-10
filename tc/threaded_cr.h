@@ -122,7 +122,7 @@ enum tc_rv tc_thread_pool_wait(struct tc_thread_pool *threads);
 struct tc_fd *tc_register_fd(int fd);
 void tc_unregister_fd(struct tc_fd *tcfd);
 enum tc_rv tc_wait_fd(__uint32_t ep_events, struct tc_fd *tcfd);
-void tc_rearm();
+void tc_rearm(struct tc_fd *the_tc_fd);
 static inline int tc_fd(struct tc_fd *tcfd)
 {
 	return tcfd->fd;

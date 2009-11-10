@@ -138,7 +138,7 @@ static void unix_socket_reader(void *data)
 		if (tc_wait_fd(EPOLLIN, ri->in) != RV_OK)
 			break;
 		rr = read(tc_fd(ri->in), b, 10);
-		tc_rearm();
+		tc_rearm(ri->in);
 
 		m = mempool_alloc(ri->mp, 1001);
 		if (!m)
@@ -192,7 +192,7 @@ static void stdin_reader(void *data)
 	while(1) {
 		tc_wait_fd(EPOLLIN, tcfd);
 		rr = read(fileno(stdin), b, 10);
-		tc_rearm();
+		tc_rearm(tcfd);
 		if (rr <= 0) {
 			fprintf(stderr, "read() failed: %d, %m\n", errno);
 			exit(1);
