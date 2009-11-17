@@ -212,12 +212,12 @@ do {									\
 
 #ifdef WAIT_DEBUG
 #define tc_sched_yield()	({ SET_CALLER; tc_sched_yield(); UNSET_CALLER; })
-#define tc_wait_fd(E, T)	({ SET_CALLER; tc_wait_fd(E, T); UNSET_CALLER; })
-#define tc_mutex_lock(M)	({ SET_CALLER; tc_mutex_lock(M); UNSET_CALLER; })
-#define tc_thread_wait(T)	({ SET_CALLER; tc_thread_wait(T); UNSET_CALLER; })
+#define tc_wait_fd(E, T)	({ enum tc_rv rv; SET_CALLER; rv = tc_wait_fd(E, T); UNSET_CALLER; rv; })
+#define tc_mutex_lock(M)	({ enum tc_rv rv; SET_CALLER; rv = tc_mutex_lock(M); UNSET_CALLER; rv; })
+#define tc_thread_wait(T)	({ enum tc_rv rv; SET_CALLER; rv = tc_thread_wait(T); UNSET_CALLER; rv; })
 #define tc_waitq_wait(W)	({ SET_CALLER; tc_waitq_wait(W); UNSET_CALLER; })
-#define tc_thread_pool_wait(P)	({ SET_CALLER; tc_thread_pool_wait(P); UNSET_CALLER; })
-#define tc_sleep(C, S, N)	({ SET_CALLER; tc_sleep(C, S, N); UNSET_CALLER; })
+#define tc_thread_pool_wait(P)	({ enum tc_rv rv; SET_CALLER; rv = tc_thread_pool_wait(P); UNSET_CALLER; rv; })
+#define tc_sleep(C, S, N)	({ enum tc_rv rv; SET_CALLER; rv = tc_sleep(C, S, N); UNSET_CALLER; rv; })
 #endif /* ifdef WAIT_DEBUG */
 
 #endif /* ifndef THREADED_CR_H */
