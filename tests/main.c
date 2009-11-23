@@ -211,8 +211,8 @@ static void stdin_reader(void *data)
 
 int main(int argc, char** argv)
 {
-	int nr_worker=4;
-	int foreground=0;
+	int nr_worker = sysconf(_SC_NPROCESSORS_ONLN);
+	int foreground = 0;
 	int c;
 
 	static struct option options[] = {
@@ -235,7 +235,7 @@ int main(int argc, char** argv)
 		}
 	}
 
-	tc_run(stdin_reader, NULL, "stdin_reader", 3);
+	tc_run(stdin_reader, NULL, "stdin_reader", nr_worker);
 
 	return 0;
 }

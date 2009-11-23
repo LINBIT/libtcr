@@ -31,7 +31,7 @@ static void starter(void *unused)
 
 int main()
 {
-	tc_run(starter, NULL, "test", 4);
+	tc_run(starter, NULL, "test", sysconf(_SC_NPROCESSORS_ONLN));
 	sleep(60);
 	return 0;
 }

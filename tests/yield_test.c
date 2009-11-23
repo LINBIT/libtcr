@@ -26,6 +26,6 @@ static void starter(void *unused)
 
 int main()
 {
-	tc_run(starter, NULL, "test", 2);
+	tc_run(starter, NULL, "test", sysconf(_SC_NPROCESSORS_ONLN));
 	return 0;
 }
