@@ -218,6 +218,10 @@ do {									\
 #define tc_waitq_wait(W)	({ SET_CALLER; tc_waitq_wait(W); UNSET_CALLER; })
 #define tc_thread_pool_wait(P)	({ enum tc_rv rv; SET_CALLER; rv = tc_thread_pool_wait(P); UNSET_CALLER; rv; })
 #define tc_sleep(C, S, N)	({ enum tc_rv rv; SET_CALLER; rv = tc_sleep(C, S, N); UNSET_CALLER; rv; })
+
+/* This is a handy function to be called from within gdb */
+void tc_dump_threads(void);
+
 #endif /* ifdef WAIT_DEBUG */
 
 #endif /* ifndef THREADED_CR_H */
