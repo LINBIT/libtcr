@@ -120,6 +120,15 @@ void msg_exit(int code, const char *fmt, ...)
 	exit(code);
 }
 
+void msg(const char *fmt, ...)
+{
+	va_list ap;
+
+	va_start(ap, fmt);
+	diagnostic(fmt, ap);
+	va_end(ap);
+}
+
 /* must_hold tcfd->lock */
 static __uint32_t calc_epoll_event_mask(struct events *es)
 {
@@ -150,19 +159,18 @@ static struct event *matching_event(__uint32_t em, struct events *es)
 }
 
 /* must_hold tcfd->lock */
-static void arm(struct tc_fd *tcfd)
+static int arm(struct tc_fd *tcfd)
 {
 	struct epoll_event epe;
 
 	epe.events = calc_epoll_event_mask(&tcfd->events.events);
 	if (epe.events == tcfd->ep_events)
-		return;
+		return 0;
 
 	epe.data.ptr = tcfd;
 	tcfd->ep_events = epe.events;
 
-	if (epoll_ctl(sched.efd, EPOLL_CTL_MOD, tcfd->fd, &epe))
-		msg_exit(1, "epoll_ctl failed with %m\n");
+	return epoll_ctl(sched.efd, EPOLL_CTL_MOD, tcfd->fd, &epe);
 }
 
 static void event_list_init(struct event_list *el)
@@ -207,15 +215,17 @@ static void _add_event(struct event *e, struct event_list *el, struct tc_thread 
 	CIRCLEQ_INSERT_TAIL(&el->events, e, e_chain);
 }
 
-void add_event_fd(struct event *e, __uint32_t ep_events, enum tc_event_flag flags, struct tc_fd *tcfd)
+int add_event_fd(struct event *e, __uint32_t ep_events, enum tc_event_flag flags, struct tc_fd *tcfd)
 {
+	int rv;
  	e->ep_events = ep_events;
  	e->flags = flags;
 
 	spin_lock(&tcfd->events.lock);
 	_add_event(e, &tcfd->events, tc_current());
-	arm(tcfd);
+	rv = arm(tcfd);
 	spin_unlock(&tcfd->events.lock);
+	return rv;
 }
 
 static void add_event_cr(struct event *e, __uint32_t ep_events, enum tc_event_flag flags, struct tc_thread *tc)
@@ -359,7 +369,7 @@ static int _run_immediate(int nr)
 	return 0;
 }
 
-static int run_immediate()
+static void run_immediate()
 {
 	while (_run_immediate(worker.nr) || _run_immediate(0))
 		;
@@ -468,8 +478,21 @@ static void scheduler_part2()
 
 		e = matching_event(epe.events, &tcfd->events.events);
 		if (!e) {
-			/* That can happen if the event_fd of a signal wakes us up just
-			   after _signal_cancel was called */
+			/* That can happen if a fd was enabled by a call to tc_wait_fd(),
+			   that was interrupted by a tc_signal later. Then an event on the
+			   fd happened, be no tc_library thread waits for that event any
+			   longer. No need to worry, since we use EPOLLONESHOT always,
+			   we can simply return to epoll_wait() */
+
+			if (epe.events & EPOLLERR || epe.events & EPOLLHUP) {
+				/* EPOLLERR and EPOLLHUP do not obey the single shot
+				   semantics. Need to remove an FD with an HUP or ERR
+				   condition immediately. Since this might be done by
+				   all workers concurrently, ignore failures here.*/
+				epoll_ctl(sched.efd, EPOLL_CTL_DEL, tcfd->fd, &epe);
+				msg("Removed fd %d from epoll set because of ERR/HUP\n", tcfd->fd);
+			}
+
 			spin_unlock(&tcfd->events.lock);
 			continue;
 		}
@@ -589,11 +612,14 @@ void tc_run(void (*func)(void *), void *data, char* name, int nr_of_workers)
 }
 
 
-void tc_rearm(struct tc_fd *the_tc_fd)
+enum tc_rv tc_rearm(struct tc_fd *the_tc_fd)
 {
+	int rv;
+
 	spin_lock(&the_tc_fd->events.lock);
-	arm(the_tc_fd);
+	rv = arm(the_tc_fd);
 	spin_unlock(&the_tc_fd->events.lock);
+	return rv ? RV_FAILED : RV_OK;
 }
 
 enum tc_rv tc_wait_fd(__uint32_t ep_events, struct tc_fd *tcfd)
@@ -601,7 +627,8 @@ enum tc_rv tc_wait_fd(__uint32_t ep_events, struct tc_fd *tcfd)
 	struct event e;
 	int r;
 
-	add_event_fd(&e, ep_events | EPOLLONESHOT, EF_READY, tcfd);
+	if (add_event_fd(&e, ep_events | EPOLLONESHOT, EF_READY, tcfd))
+		return RV_FAILED;
 	tc_scheduler();
 	r = (worker.woken_by_event != &e);
 	worker.woken_by_event = NULL;
@@ -793,8 +820,8 @@ static void _tc_fd_unregister(struct tc_fd *tcfd, int sync)
 		msg_exit(1, "event list not empty in tc_unregister_fd()\n");
 	spin_unlock(&tcfd->events.lock);
 
-	if (epoll_ctl(sched.efd, EPOLL_CTL_DEL, tcfd->fd, &epe))
-		msg_exit(1, "epoll_ctl failed with %m\n");
+	/* ignoring return value of epoll_ctl() here on intention */
+	epoll_ctl(sched.efd, EPOLL_CTL_DEL, tcfd->fd, &epe);
 
 	if (sync)
 		synchronize_world();
