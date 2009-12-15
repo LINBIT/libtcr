@@ -15,7 +15,7 @@
 enum tc_event_flag {
 	EF_READY       = 1, /* I am ready to run */
 	EF_EXITING     = 2, /* Free my struct tc_thread */
-	EF_SIGNAL      = 3, /* Like EF_ALL, and free the event. */
+	EF_SIGNAL      = 3, /* Like EF_READY, and free the event. */
 };
 
 enum tc_rv {
@@ -33,7 +33,8 @@ struct event {
 		struct tc_fd *tcfd;   /* when it is attaache to an tc_thread */
 		struct tc_signal *signal;
 	};
-	enum tc_event_flag flags;
+	enum tc_event_flag flags:2;
+	unsigned err_hup:1; /* set by scheduler_part2() */
 	struct event_list *el;
 };
 

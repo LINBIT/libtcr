@@ -476,6 +476,11 @@ static void scheduler_part2()
 		spin_lock(&tcfd->events.lock);
 		tcfd->ep_events = -1; /* recalc them */
 
+		/* in case of an error condition, wake all waiters on the FD,
+		   no matter what they are waiting for: Setting all bits. */
+		if (epe.events & EPOLLERR || epe.events & EPOLLHUP)
+			epe.events = -1;
+
 		e = matching_event(epe.events, &tcfd->events.events);
 		if (!e) {
 			/* That can happen if a fd was enabled by a call to tc_wait_fd(),
@@ -496,6 +501,8 @@ static void scheduler_part2()
 			spin_unlock(&tcfd->events.lock);
 			continue;
 		}
+
+		e->err_hup = (epe.events & EPOLLERR || epe.events & EPOLLHUP);
 
 		worker.woken_by_tcfd = tcfd;
 		_remove_event(e, &tcfd->events);
@@ -636,7 +643,7 @@ enum tc_rv tc_wait_fd(__uint32_t ep_events, struct tc_fd *tcfd)
 		remove_event_fd(&e, tcfd);
 		return RV_INTR;
 	}
-	return RV_OK;
+	return e.err_hup ? RV_FAILED : RV_OK;
 }
 
 void tc_die()
