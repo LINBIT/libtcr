@@ -33,8 +33,7 @@ struct event {
 		struct tc_fd *tcfd;   /* when it is attaache to an tc_thread */
 		struct tc_signal *signal;
 	};
-	enum tc_event_flag flags:2;
-	unsigned err_hup:1; /* set by scheduler_part2() */
+	enum tc_event_flag flags;
 	struct event_list *el;
 };
 
@@ -47,6 +46,7 @@ struct event_list {
 
 struct tc_fd {
 	int fd;
+	atomic_t err_hup;
 	__uint32_t ep_events;  /* current mask */
 	struct event_list events;
 };

@@ -478,8 +478,10 @@ static void scheduler_part2()
 
 		/* in case of an error condition, wake all waiters on the FD,
 		   no matter what they are waiting for: Setting all bits. */
-		if (epe.events & EPOLLERR || epe.events & EPOLLHUP)
+		if (epe.events & EPOLLERR || epe.events & EPOLLHUP) {
+			atomic_set(&tcfd->err_hup, 1);
 			epe.events = -1;
+		}
 
 		e = matching_event(epe.events, &tcfd->events.events);
 		if (!e) {
@@ -501,8 +503,6 @@ static void scheduler_part2()
 			spin_unlock(&tcfd->events.lock);
 			continue;
 		}
-
-		e->err_hup = (epe.events & EPOLLERR || epe.events & EPOLLHUP);
 
 		worker.woken_by_tcfd = tcfd;
 		_remove_event(e, &tcfd->events);
@@ -634,6 +634,8 @@ enum tc_rv tc_wait_fd(__uint32_t ep_events, struct tc_fd *tcfd)
 	struct event e;
 	int r;
 
+	if (atomic_read(&tcfd->err_hup))
+		return RV_FAILED;
 	if (add_event_fd(&e, ep_events | EPOLLONESHOT, EF_READY, tcfd))
 		return RV_FAILED;
 	tc_scheduler();
@@ -643,7 +645,7 @@ enum tc_rv tc_wait_fd(__uint32_t ep_events, struct tc_fd *tcfd)
 		remove_event_fd(&e, tcfd);
 		return RV_INTR;
 	}
-	return e.err_hup ? RV_FAILED : RV_OK;
+	return atomic_read(&tcfd->err_hup) ? RV_FAILED : RV_OK;
 }
 
 void tc_die()
@@ -787,6 +789,7 @@ static void _tc_fd_init(struct tc_fd *tcfd, int fd)
 	tcfd->fd = fd;
 	event_list_init(&tcfd->events);
 	tcfd->ep_events = 0;
+	atomic_set(&tcfd->err_hup, 0);
 
 	/* The fd has to be non blocking */
 	arg = fcntl(fd, F_GETFL, NULL);
