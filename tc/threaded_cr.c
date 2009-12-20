@@ -95,6 +95,7 @@ static void _signal_gets_delivered(struct event *e);
 static void signal_cancel_pending();
 static void _synchronize_world();
 static void synchronize_world();
+static void iwi_immediate();
 
 diagnostic_fn diagnostic = NULL;
 
@@ -353,8 +354,10 @@ static int _run_immediate(int nr)
 		switch (e->flags) {
 		case EF_READY:
 		case EF_SIGNAL:
+			if (!CIRCLEQ_EMPTY(&sched.immediate.events))
+				iwi_immediate(); /* More work available, wakeup an worker */
 			switch_to(tc);
-			return 1; /* must cause tc_scheduler() to return! */
+			return 1;
 		case EF_EXITING:
 			tc_thread_free(e->tc);
 			spin_lock(&sched.immediate.lock);
@@ -1050,12 +1053,8 @@ void tc_waitq_wakeup_all(struct tc_waitq *wq)
 	spin_unlock(&wq->waiters.lock);
 	spin_unlock(&sched.immediate.lock);
 
-	if (wake) {
-		if (wake == 1)
-			iwi_immediate();
-		else /* wake > 1 */
-			iwi_immediate(); /* todo wake all */
-	}
+	if (wake)
+		iwi_immediate(); /* _run_immediate() will wakeup more if necessary */
 }
 
 void tc_waitq_unregister(struct tc_waitq *wq)
