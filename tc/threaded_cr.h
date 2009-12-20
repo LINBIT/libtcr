@@ -206,6 +206,86 @@ do {									\
  })
 
 
+/* The tc_parallel_for(var, init_stmt, condition_stmt, increment_stmt) macro
+   is simmilar to the for(;;) statement of the C language.
+
+   It executes the iterations of body in parallel.
+
+   LIMITATIONS:
+
+      * Each execution thread of the statement's body has in independend
+        instance of the counter variable. Modifying it in the body has
+	no effect on the other iterations.
+
+      * The statement's body has to be enclosed in braces { }
+        I.e. the following example does not compile:
+
+	tc_parallel_for(i, i = 0, i < 1000, i++)
+		printf("%d\n", i);
+
+	Valid is:
+
+	tc_parallel_for(i, i = 0, i < 1000, i++) {
+		printf("%d\n", i);
+	}
+
+      * It is implemented as a multi statement macro therefore it
+	can not be used as a sole statement
+	I.e. the following example does not compile:
+
+	if (...)
+		tc_parallel_for(i, i = 0, i < 1000, i++) {
+
+	Valid is:
+
+	if (...) {
+		tc_parallel_for(i, i = 0, i < 1000, i++) {
+		...
+		}
+	}
+*/
+
+
+#define __TO_STRING(A) #A
+#define TO_STRING(A) __TO_STRING(A)
+
+#define __TOKEN_PASTE(X, Y) X ## Y
+#define TOKEN_PASTE(X, Y) __TOKEN_PASTE(X, Y)
+
+#define __tc_parallel_for(VAR, INIT_ST, COND_ST, INC_ST, COUNT)		\
+	auto void TOKEN_PASTE(__for_body_, COUNT)(typeof(VAR) VAR);	\
+	struct tc_thread_pool TOKEN_PASTE(__tp_, COUNT);		\
+	spinlock_t TOKEN_PASTE(__lock_, COUNT);				\
+									\
+	void TOKEN_PASTE(__for_func_, COUNT)(void *unused) {		\
+		typeof(VAR) __i;					\
+		spin_lock(&TOKEN_PASTE(__lock_, COUNT));		\
+		while (COND_ST) {					\
+			__i = VAR;					\
+			INC_ST;						\
+			spin_unlock(&TOKEN_PASTE(__lock_, COUNT));	\
+			TOKEN_PASTE(__for_body_, COUNT)(__i);		\
+			spin_lock(&TOKEN_PASTE(__lock_, COUNT));	\
+		}							\
+		spin_unlock(&TOKEN_PASTE(__lock_, COUNT));		\
+	}								\
+									\
+	INIT_ST;							\
+									\
+	tc_thread_pool_new(&TOKEN_PASTE(__tp_, COUNT),			\
+			   &TOKEN_PASTE(__for_func_, COUNT),		\
+			   NULL,					\
+			   "tc_parallel_for:"				\
+			   __FILE__ ":"					\
+			   TO_STRING(__LINE__) " %d");			\
+									\
+	tc_thread_pool_wait(&TOKEN_PASTE(__tp_, COUNT));		\
+	void TOKEN_PASTE(__for_body_, COUNT)(typeof(VAR) VAR)		\
+
+#define tc_parallel_for(VAR, INIT_ST, COND_ST, INC_ST) \
+	__tc_parallel_for(VAR, INIT_ST, COND_ST, INC_ST, __COUNTER__)
+
+
 #define container_of(ptr, type, member) ({                      \
 	const typeof( ((type *)0)->member ) *__mptr = (ptr);    \
 	(type *)( (char *)__mptr - offsetof(type,member) );})
