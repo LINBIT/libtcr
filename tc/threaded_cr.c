@@ -388,15 +388,20 @@ static void rearm_immediate()
 	arm_immediate(EPOLL_CTL_MOD);
 }
 
+static void _iwi_immediate()
+{
+	eventfd_t c = 1;
+
+	if (write(sched.immediate_fd, &c, sizeof(c)) != sizeof(c))
+		msg_exit(1, "write() failed with: %m\n");
+}
+
 static void iwi_immediate()
 {
 	/* Some other worker should please process the queued immediate events. */
-	eventfd_t c = 1;
 
-	if (atomic_read(&sched.sleeping_workers)) {
-		if (write(sched.immediate_fd, &c, sizeof(c)) != sizeof(c))
-			msg_exit(1, "write() failed with: %m\n");
-	}
+	if (atomic_read(&sched.sleeping_workers))
+		_iwi_immediate();
 }
 
 void tc_sched_yield()
@@ -591,6 +596,9 @@ static void *worker_pthread(void *arg)
 
 	tc_worker_init(nr);
 	tc_thread_wait(tc_main); /* calls tc_scheduler() */
+
+	_iwi_immediate(); /* All other workers need to get woken UNCONDITINALLY
+			     So that the complete program can terminate */
 	return NULL;
 }
 
