@@ -8,6 +8,12 @@ static void starter(void *unused)
 	tc_parallel_for(i, i = 0, i < 10000, i++) {
 		printf("%d\n", i);
 	}
+
+	tc_parallel {
+		printf("Hello ");
+	} tc_with {
+		printf("world");
+	} tc_parallel_end;
 }
 
 int main()

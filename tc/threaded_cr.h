@@ -139,7 +139,7 @@ enum tc_rv tc_mutex_trylock(struct tc_mutex *m);
 /* Signals
    After a signal has been initialized , it might be enabled in multiple
    tc_thread_pool. When a signal gets fired, all tc_threads that enabled that
-   signal will get interrupted. I.e. Any sleeping tc_XXX function will 
+   signal will get interrupted. I.e. Any sleeping tc_XXX function will
    return RV_INTR instead of RV_OK once.
    A tc_thread that enabled a signal, and exits for an other reason, than
    being waked up by that signal, should disable that signal again.
@@ -284,6 +284,50 @@ do {									\
 
 #define tc_parallel_for(VAR, INIT_ST, COND_ST, INC_ST) \
 	__tc_parallel_for(VAR, INIT_ST, COND_ST, INC_ST, __COUNTER__)
+
+
+/* The tc_parallel { body1 } tc_with { body2 } tc_parallel_end; macro
+   will execute the statements in body1 parallel with the statements in
+   body2.
+
+   This macto can be used as a sole statement, also the two bodies might
+   be sole statements.
+
+	tc_parallel
+		tc_parallel
+			printf("p1\n");
+		tc_with
+			printf("p2\n");
+		tc_parallel_end;
+	tc_with
+		tc_parallel
+			printf("p3\n");
+		tc_with
+			printf("p4\n");
+		tc_parallel_end;
+	tc_parallel_end;
+
+*/
+
+#define tc_parallel						\
+	do {							\
+	auto void par_body1(void *);				\
+	struct tc_thread *tc;					\
+	tc = tc_thread_new(par_body1,				\
+			   NULL,				\
+			   "tc_parallel:" __FILE__ ":"		\
+			   TO_STRING(__LINE__));		\
+	void par_body1(void *unused) {				\
+
+#define tc_with							\
+	}							\
+	auto void par_body2(void *);				\
+	par_body2(NULL);					\
+	tc_thread_wait(tc);					\
+	void par_body2(void *unused) {				\
+
+#define tc_parallel_end						\
+	} } while(0)
 
 
 #define container_of(ptr, type, member) ({                      \
