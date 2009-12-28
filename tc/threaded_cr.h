@@ -261,8 +261,7 @@ do {									\
 		typeof(VAR) __i;					\
 		spin_lock(&TOKEN_PASTE(__lock_, COUNT));		\
 		while (COND_ST) {					\
-			__i = VAR;					\
-			INC_ST;						\
+			__i = INC_ST;					\
 			spin_unlock(&TOKEN_PASTE(__lock_, COUNT));	\
 			TOKEN_PASTE(__for_body_, COUNT)(__i);		\
 			spin_lock(&TOKEN_PASTE(__lock_, COUNT));	\
@@ -270,6 +269,7 @@ do {									\
 		spin_unlock(&TOKEN_PASTE(__lock_, COUNT));		\
 	}								\
 									\
+	spin_lock_init(&TOKEN_PASTE(__lock_, COUNT));			\
 	INIT_ST;							\
 									\
 	tc_thread_pool_new(&TOKEN_PASTE(__tp_, COUNT),			\
