@@ -69,7 +69,7 @@ struct scheduler {
 	int sync_fd;               /* IWI event fd to synchronize all workers */
 	int immediate_fd;          /* IWI immediate */
 	atomic_t sync_cnt;
-	pthread_barrier_t *sync_b;
+	pthread_barrier_t *volatile sync_b;
 	spinlock_t sync_lock;
 	atomic_t sleeping_workers;
 };
@@ -195,9 +195,9 @@ static void remove_event(struct event *e)
 	/* The event can be moved to an other list while we try to grab
 	   the list lock... */
 	while(1) {
-		do el = e->el; while (el == NULL);
+		do el = ((volatile struct event *)e)->el; while (el == NULL);
 		spin_lock(&el->lock);
-		if (el == e->el)
+		if (el == ((volatile struct event *)e)->el)
 			break;
 		spin_unlock(&el->lock);
 	}
