@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE refentry PUBLIC "-//OASIS//DTD DocBook XML V4.5//EN"
+"http://www.oasis-open.org/docbook/xml/4.5/docbookx.dtd">
+<refentry>
+  <xi:include href="product.xml" xmlns:xi="http://www.w3.org/2001/XInclude" />
+  <refmeta>
+    <refentrytitle>tc_thread_pool_new</refentrytitle>
+    <manvolnum>3</manvolnum>
+    <refmiscinfo class="manual">libtc documentation</refmiscinfo>
+  </refmeta>
+
+  <refnamediv>
+    <refname>tc_thread_pool_new</refname>
+    <refname>tc_thread_pool_wait</refname>
+
+    <refpurpose>libtc thread bundle functions</refpurpose>
+  </refnamediv>
+
+  <refsynopsisdiv>
+    <cmdsynopsis>
+      <command>#include &lt;tc/threaded_cr.h&gt;</command>
+    </cmdsynopsis>
+    <cmdsynopsis>
+      <command>void tc_thread_pool_new(struct tc_thread_pool *<replaceable>threads</replaceable>, void (*<replaceable>func</replaceable>)(void *), void *<replaceable>data</replaceable>, char* <replaceable>name</replaceable>);</command>
+    </cmdsynopsis>
+    <cmdsynopsis>
+      <command>enum tc_rv tc_thread_pool_wait(struct tc_thread_pool *<replaceable>threads</replaceable>);</command>
+    </cmdsynopsis>
+
+  </refsynopsisdiv>
+
+  <refsection>
+    <title>Description</title>
+
+    <para>
+      <option>tc_thread_pool_new()</option> creates a new user level thread on each system
+      level thread. <replaceable>Data</replaceable> gets passed to <replaceable>func</replaceable>
+      which is called in each of the created threads. The string passed as 
+      <replaceable>name</replaceable> should contain the "%d" sequence. It gets replaced
+      by consecutive numbers.
+    </para>
+
+    <para>
+      <option>tc_thread_pool_wait()</option> waits for the termination of all threads 
+      of the thread pool <replaceable>threads</replaceable>.
+    </para>
+
+  </refsection>
+  <xi:include href="author.xml" xmlns:xi="http://www.w3.org/2001/XInclude" />
+</refentry>

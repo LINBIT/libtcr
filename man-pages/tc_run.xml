@@ -1,0 +1,76 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE refentry PUBLIC "-//OASIS//DTD DocBook XML V4.5//EN"
+"http://www.oasis-open.org/docbook/xml/4.5/docbookx.dtd">
+<refentry>
+  <xi:include href="product.xml" xmlns:xi="http://www.w3.org/2001/XInclude" />
+  <refmeta>
+    <refentrytitle>tc_run</refentrytitle>
+    <manvolnum>3</manvolnum>
+    <refmiscinfo class="manual">libtc documentation</refmiscinfo>
+  </refmeta>
+
+  <refnamediv>
+    <refname>tc_run</refname>
+    <refname>tc_init</refname>
+    <refname>tc_worker_init</refname>
+
+    <refpurpose>libtc initialization</refpurpose>
+  </refnamediv>
+
+  <refsynopsisdiv>
+    <cmdsynopsis>
+      <command>#include &lt;tc/threaded_cr.h&gt;</command>
+    </cmdsynopsis>
+    <cmdsynopsis>
+      <command>void tc_run(void (*<replaceable>func</replaceable>)(void *), void *<replaceable>data</replaceable>, char* <replaceable>name</replaceable>, int <replaceable>nr_of_workers</replaceable>);</command>
+    </cmdsynopsis>
+    <cmdsynopsis>
+      <command>void tc_init();</command>
+    </cmdsynopsis>
+    <cmdsynopsis>
+      <command>void tc_worker_init();</command>
+    </cmdsynopsis>
+  </refsynopsisdiv>
+
+  <refsection>
+    <title>Description</title>
+
+    <para>The most convenient way of using the tc-library is to call 
+      <replaceable>tc_run()</replaceable>. Alternatively call <replaceable>tc_init()</replaceable>
+      once, create you thread pool, call <replaceable>tc_worker_init()</replaceable> and 
+      <replaceable>tc_scheduler()</replaceable> in each thread of the pool.
+    </para>
+    <para>
+      tc_run() creates <replaceable>nr_of_workers</replaceable> threads using
+      <citerefentry><refentrytitle>pthread_create</refentrytitle><manvolnum>3</manvolnum></citerefentry>
+      and calls tc_scheduler() in these threads. After that it calls the
+      provided <replaceable>func</replaceable>. When <replaceable>func</replaceable>
+      returns the thread pools gets destroyed.
+    </para>
+  </refsection>
+  <refsection>
+    <title>Example</title>
+
+    <para>
+      <programlisting format="linespecific">static void starter(void *unused)
+{
+	struct tc_thread *a, *b;
+
+	a = tc_thread_new(func, "a", "func_a");
+	b = tc_thread_new(func, "b", "func_b");
+
+	tc_thread_wait(a);
+	tc_thread_wait(b);
+}
+
+
+int main()
+{
+	tc_run(starter, NULL, "test", sysconf(_SC_NPROCESSORS_ONLN));
+	return 0;
+}
+</programlisting>
+      </para>
+  </refsection>
+  <xi:include href="author.xml" xmlns:xi="http://www.w3.org/2001/XInclude" />
+</refentry>

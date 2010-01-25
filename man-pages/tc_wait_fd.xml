@@ -1,0 +1,101 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE refentry PUBLIC "-//OASIS//DTD DocBook XML V4.5//EN"
+"http://www.oasis-open.org/docbook/xml/4.5/docbookx.dtd">
+<refentry>
+  <xi:include href="product.xml" xmlns:xi="http://www.w3.org/2001/XInclude" />
+  <refmeta>
+    <refentrytitle>tc_wait_fd</refentrytitle>
+    <manvolnum>3</manvolnum>
+    <refmiscinfo class="manual">libtc documentation</refmiscinfo>
+  </refmeta>
+
+  <refnamediv>
+    <refname>tc_wait_fd</refname>
+    <refname>tc_register_fd</refname>
+    <refname>tc_unregister_fd</refname>
+    <refname>tc_rearm</refname>
+    <refname>tc_fd</refname>
+
+    <refpurpose>libtc file descriptor functions</refpurpose>
+  </refnamediv>
+
+  <refsynopsisdiv>
+    <cmdsynopsis>
+      <command>#include &lt;tc/threaded_cr.h&gt;</command>
+    </cmdsynopsis>
+    <cmdsynopsis>
+      <command>struct tc_fd *tc_register_fd(int <replaceable>fd</replaceable>);</command>
+    </cmdsynopsis>
+    <cmdsynopsis>
+      <command>void tc_unregister_fd(struct tc_fd *<replaceable>tcfd</replaceable>);</command>
+    </cmdsynopsis>
+    <cmdsynopsis>
+      <command>enum tc_rv tc_wait_fd(__uint32_t <replaceable>ep_events</replaceable>, struct tc_fd *<replaceable>tcfd</replaceable>);</command>
+    </cmdsynopsis>
+    <cmdsynopsis>
+      <command>enum tc_rv tc_rearm(struct tc_fd *<replaceable>the_tc_fd</replaceable>);</command>
+    </cmdsynopsis>
+    <cmdsynopsis>
+      <command>int tc_fd(struct tc_fd *<replaceable>tcfd</replaceable>);</command>
+    </cmdsynopsis>
+  </refsynopsisdiv>
+
+  <refsection>
+    <title>Description</title>
+
+    <para>
+      <option>tc_register_fd()</option> adds a <replaceable>fd</replaceable> to the library's
+      data structures and the epoll-fd. You need to register each <replaceable>fd</replaceable>
+      you want to wait later on.
+    </para>
+    <para>
+      <option>tc_unregister_fd()</option> removes a file descriptor from the library's
+      data structures and the epoll-fd. Note: This call needs to make sure that all
+      system level threads see that change in an consistent manner, i.e. it synchronizes
+      all system level threads.
+    </para>
+    <para>
+      <option>tc_wait_fd()</option> waits for events on an registered file descriptor 
+      <replaceable>tcfd</replaceable>. <replaceable>ep_events</replaceable> may be
+      <option>EPOLLIN</option>, <option>EPOLLOUT</option>, or any of 
+      <citerefentry><refentrytitle>epoll_ctl</refentrytitle><manvolnum>2</manvolnum></citerefentry>'s
+      events. Note: <option>EPOLLONESHOT</option> gets implicitly added by libtc.
+    </para>
+
+  </refsection>
+  <refsection>
+    <title>Return Values</title>
+    <para>
+      <option>tc_wait_fd()</option> may return
+      <variablelist>
+        <varlistentry>
+          <term><option>RV_OK</option></term>
+	  <listitem>
+	    <para>
+	      The event you waited for occurred.
+	    </para>
+	  </listitem>
+        </varlistentry>
+
+        <varlistentry>
+          <term><option>RV_INTR</option></term>
+	  <listitem>
+	    <para>
+	      A <option>tc_signal</option>, that is subscribed by this thread, was fired.
+	    </para>
+	  </listitem>
+        </varlistentry>
+
+        <varlistentry>
+          <term><option>RV_FAILED</option></term>
+	  <listitem>
+	    <para>
+	      The file descriptor entered an error state.
+	    </para>
+	  </listitem>
+        </varlistentry>
+      </variablelist>
+    </para>
+  </refsection>
+  <xi:include href="author.xml" xmlns:xi="http://www.w3.org/2001/XInclude" />
+</refentry>

@@ -1,0 +1,72 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE refentry PUBLIC "-//OASIS//DTD DocBook XML V4.5//EN"
+"http://www.oasis-open.org/docbook/xml/4.5/docbookx.dtd">
+<refentry>
+  <xi:include href="product.xml" xmlns:xi="http://www.w3.org/2001/XInclude" />
+  <refmeta>
+    <refentrytitle>tc_thread_new</refentrytitle>
+    <manvolnum>3</manvolnum>
+    <refmiscinfo class="manual">libtc documentation</refmiscinfo>
+  </refmeta>
+
+  <refnamediv>
+    <refname>tc_thread_new</refname>
+    <refname>tc_thread_wait</refname>
+    <refname>tc_thread_name</refname>
+    <refname>tc_current</refname>
+    <refname>tc_die</refname>
+
+    <refpurpose>libtc thread functions</refpurpose>
+  </refnamediv>
+
+  <refsynopsisdiv>
+    <cmdsynopsis>
+      <command>#include &lt;tc/threaded_cr.h&gt;</command>
+    </cmdsynopsis>
+    <cmdsynopsis>
+      <command>struct tc_thread *tc_thread_new(void (*<replaceable>func</replaceable>)(void *), void *<replaceable>data</replaceable>, char* <replaceable>name</replaceable>);</command>
+    </cmdsynopsis>
+    <cmdsynopsis>
+      <command>enum tc_rv tc_thread_wait(struct tc_thread *<replaceable>tc</replaceable>);</command>
+    </cmdsynopsis>
+    <cmdsynopsis>
+      <command>char *tc_thread_name(struct tc_thread *<replaceable>tc</replaceable>);</command>
+    </cmdsynopsis>
+    <cmdsynopsis>
+      <command>struct tc_thread *tc_current();</command>
+    </cmdsynopsis>
+    <cmdsynopsis>
+      <command>void tc_die();</command>
+    </cmdsynopsis>
+  </refsynopsisdiv>
+
+  <refsection>
+    <title>Description</title>
+
+    <para>
+      <option>tc_thread_new()</option> creates a new user space thread
+      and executes the provided <replaceable>func</replaceable> in the context
+      of the newly created thread, <replaceable>data</replaceable> is passed
+      as argument to <replaceable>func</replaceable>. <replaceable>Name</replaceable>
+      may be used for debugging purposes, it should identify the thread in
+      a human readable manner.
+    </para>
+    <para>
+      <option>tc_thread_wait()</option> waits until <replaceable>tc</replaceable>
+      terminates. It returns immediately if <replaceable>tc</replaceable> does not
+      point to a running thread, i.e. the thread exited before.
+    </para>
+    <para>
+      <option>tc_thread_name()</option> returns the thread's name.
+    </para>
+    <para>
+      <option>tc_thread_current()</option> returns the callers struct tc_thread
+      object.
+    </para>
+    <para>
+      <option>tc_die()</option> is a non returning function. It terminates the 
+      currently running thread.
+    </para>
+  </refsection>
+  <xi:include href="author.xml" xmlns:xi="http://www.w3.org/2001/XInclude" />
+</refentry>

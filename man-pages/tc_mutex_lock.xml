@@ -1,0 +1,78 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE refentry PUBLIC "-//OASIS//DTD DocBook XML V4.5//EN"
+"http://www.oasis-open.org/docbook/xml/4.5/docbookx.dtd">
+<refentry>
+  <xi:include href="product.xml" xmlns:xi="http://www.w3.org/2001/XInclude" />
+  <refmeta>
+    <refentrytitle>tc_mutex_lock</refentrytitle>
+    <manvolnum>3</manvolnum>
+    <refmiscinfo class="manual">libtc documentation</refmiscinfo>
+  </refmeta>
+
+  <refnamediv>
+    <refname>tc_mutex_init</refname>
+    <refname>tc_mutex_lock</refname>
+    <refname>tc_mutex_unlock</refname>
+    <refname>tc_mutex_destroy</refname>
+    <refname>tc_mutex_trylock</refname>
+
+    <refpurpose>libtc mutex functions</refpurpose>
+  </refnamediv>
+
+  <refsynopsisdiv>
+    <cmdsynopsis>
+      <command>#include &lt;tc/threaded_cr.h&gt;</command>
+    </cmdsynopsis>
+    <cmdsynopsis>
+      <command>void tc_mutex_init(struct tc_mutex *<replaceable>m</replaceable>);</command>
+    </cmdsynopsis>
+    <cmdsynopsis>
+      <command>enum tc_rv tc_mutex_lock(struct tc_mutex *<replaceable>m</replaceable>);</command>
+    </cmdsynopsis>
+    <cmdsynopsis>
+      <command>void tc_mutex_unlock(struct tc_mutex *<replaceable>m</replaceable>);</command>
+    </cmdsynopsis>
+    <cmdsynopsis>
+      <command>enum tc_rv tc_mutex_trylock(struct tc_mutex *<replaceable>m</replaceable>);</command>
+    </cmdsynopsis>
+    <cmdsynopsis>
+      <command>void tc_mutex_destroy(struct tc_mutex *<replaceable>m</replaceable>);</command>
+    </cmdsynopsis>
+  </refsynopsisdiv>
+
+  <refsection>
+    <title>Description</title>
+    <para>
+      A <option>struct tc_mutex</option> objects needs to be initialized by a call to
+      <option>tc_mutex_init()</option> before it might be passed to any of the other
+      <option>tc_mutex_*()</option> functions. It might not be used after destruction
+      with a call to <option>tc_mutex_destroy()</option>.
+    </para>
+    <para>
+      A call to <option>tc_mutex_lock</option> locks the mutex, and returns immediately
+      if the mutex was unlocked before. If the mutex was locked, the call blocks until
+      the mutex gets unlocked by an other tc_thread. I.e. only one tc_thread can hold
+      the mutex lock at a time.
+    </para>
+    <para>
+      <option>tc_mutex_unlock()</option> unlocks a mutex, thus may allow an other tc_thread
+      to proceed.
+    </para>
+    <para>
+      <option>tc_mutex_trylock()</option> locks unlocked mutexes, and always returns immediately.
+    </para>
+  </refsection>
+  <refsection>
+    <title>Return value</title>
+    <para>
+      <option>tc_mutex_lock()</option> returns <option>RV_OK</option> upon successful
+      acquisition of the lock and <option>RV_INTR</option> if the call was interrupted
+      by a tc_signal.
+    </para>
+    <para>
+      <option>tc_mutex_trylock()</option> returns <option>RV_OK</option> upon successful
+      acquisition of the lock and <option>RV_FAILED</option> if the mutex is already locked.
+    </para>
+  </refsection>
+  <xi:include href="author.xml" xmlns:xi="http://www.w3.org/2001/XInclude" />
+</refentry>

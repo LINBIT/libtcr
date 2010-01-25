@@ -1,0 +1,99 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE refentry PUBLIC "-//OASIS//DTD DocBook XML V4.5//EN"
+"http://www.oasis-open.org/docbook/xml/4.5/docbookx.dtd">
+<refentry>
+  <xi:include href="product.xml" xmlns:xi="http://www.w3.org/2001/XInclude" />
+  <refmeta>
+    <refentrytitle>tc_parallel_for</refentrytitle>
+    <manvolnum>3</manvolnum>
+    <refmiscinfo class="manual">libtc documentation</refmiscinfo>
+  </refmeta>
+
+  <refnamediv>
+    <refname>tc_parallel_for</refname>
+    <refname>tc_parallel</refname>
+    <refname>tc_with</refname>
+    <refname>tc_parallel_end</refname>
+
+    <refpurpose>libtc convenience macros for parallel computation</refpurpose>
+  </refnamediv>
+
+  <refsynopsisdiv>
+    <cmdsynopsis>
+      <command>#include &lt;tc/threaded_cr.h&gt;</command>
+    </cmdsynopsis>
+    <cmdsynopsis>
+      <command>tc_parallel_for(<replaceable>VAR</replaceable>, <replaceable>INIT_ST</replaceable>, <replaceable>COND_ST</replaceable>, <replaceable>INC_ST</replaceable>) { <replaceable>BODY</replaceable> } </command>
+    </cmdsynopsis>
+    <cmdsynopsis>
+      <command>tc_parallel { <replaceable>BODY1</replaceable> } tc_with { <replaceable>BODY2</replaceable> } tc_parallel_end;</command>
+    </cmdsynopsis>
+  </refsynopsisdiv>
+
+  <refsection>
+    <title>Description</title>
+    <para>
+      The <option>tc_parallel_for(,,,)</option> macro is similar to the C language's 
+      <option>for(;;)</option> statement. It potentially executes iterations of the 
+      body in parallel. 
+    </para>
+    <para>
+      It has a few limitations that must be kept in mind
+      <itemizedlist>
+	<listitem>
+	  <para>
+	    Each execution thread of the statement's body has in independent
+            instance of the counter variable. Modifying it in the body has
+	    no effect on the other iterations.
+	  </para>
+	</listitem>
+	<listitem>
+	  <para>
+	    The statement's body has to be enclosed in braces { }
+            I.e. the following example does not compile:
+	    <programlisting format="linespecific">tc_parallel_for(i, i = 0, i &lt; 1000, i++)
+	printf("%d\n", i);
+	    </programlisting>
+	    Valid is:
+	    <programlisting format="linespecific">tc_parallel_for(i, i = 0, i &lt; 1000, i++) {
+	printf("%d\n", i);
+}
+	    </programlisting>
+	  </para>
+	</listitem>
+	<listitem>
+	  <para>
+	    It is implemented as a multiple statement macro therefore it
+	    can not be used as a sole statement. I.e. the following example 
+	    does not compile:
+	    <programlisting format="linespecific">if (...)
+	tc_parallel_for(i, i = 0, i &lt; 1000, i++) {
+	    </programlisting>
+	    Valid is:
+	    <programlisting format="linespecific">if (...) {
+	tc_parallel_for(i, i = 0, i &lt; 1000, i++) {
+		...
+	}
+}
+	    </programlisting>
+	  </para>
+	</listitem>
+      </itemizedlist>
+    </para>
+    <para>
+      The <option>tc_parallel { body1 } tc_with { body2 } tc_parallel_end;</option> macros
+      execute the body1 in parallel with body2.
+    </para>
+    <para>
+      This macro can be used as sole statement, as well the two bodies might be sole statements.
+      Example:
+      <programlisting format="linespecific">tc_parallel
+	printf("p1\n");
+tc_with
+	printf("p2\n");
+tc_parallel_end;
+      </programlisting>
+    </para>
+  </refsection>
+  <xi:include href="author.xml" xmlns:xi="http://www.w3.org/2001/XInclude" />
+</refentry>

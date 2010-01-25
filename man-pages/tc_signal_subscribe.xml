@@ -1,0 +1,83 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE refentry PUBLIC "-//OASIS//DTD DocBook XML V4.5//EN"
+"http://www.oasis-open.org/docbook/xml/4.5/docbookx.dtd">
+<refentry>
+  <xi:include href="product.xml" xmlns:xi="http://www.w3.org/2001/XInclude" />
+  <refmeta>
+    <refentrytitle>tc_signal_subscribe</refentrytitle>
+    <manvolnum>3</manvolnum>
+    <refmiscinfo class="manual">libtc documentation</refmiscinfo>
+  </refmeta>
+
+  <refnamediv>
+    <refname>tc_signal_init</refname>
+    <refname>tc_signal_subscribe</refname>
+    <refname>tc_signal_unsubscribe</refname>
+    <refname>tc_signal_fire</refname>
+    <refname>tc_signal_destroy</refname>
+
+    <refpurpose>libtc signaling functions</refpurpose>
+  </refnamediv>
+
+  <refsynopsisdiv>
+    <cmdsynopsis>
+      <command>#include &lt;tc/threaded_cr.h&gt;</command>
+    </cmdsynopsis>
+    <cmdsynopsis>
+      <command>void tc_signal_init(struct tc_signal *<replaceable>s</replaceable>);</command>
+    </cmdsynopsis>
+    <cmdsynopsis>
+      <command>struct tc_signal_sub *tc_signal_subscribe(struct tc_signal *<replaceable>s</replaceable>);</command>
+    </cmdsynopsis>
+    <cmdsynopsis>
+      <command>void tc_signal_unsubscribe(struct tc_signal *<replaceable>s</replaceable>, struct tc_signal_sub *<replaceable>ss</replaceable>);</command>
+    </cmdsynopsis>
+    <cmdsynopsis>
+      <command>void tc_signal_fire(struct tc_signal *<replaceable>s</replaceable>);</command>
+    </cmdsynopsis>
+    <cmdsynopsis>
+      <command>void tc_signal_destroy(struct tc_signal *<replaceable>s</replaceable>);</command>
+    </cmdsynopsis>
+  </refsynopsisdiv>
+
+  <refsection>
+    <title>Description</title>
+    <para>
+      <option>Tc_signals</option> are used for asynchronous notification between
+      tc_threads. As of today they do not have any relation to system level (unix) signals.
+    </para>
+    <para>
+      Signals are guaranteed to get delivered once. When the subscriber of the signal
+      does not sleep in a sleeping libtc call, then the signal will get delivered when
+      a sleeping function is called the next time. A signal that is fired multiple times
+      before it gets delivered, gets delivered only once.
+    </para>
+    <para>
+      Before a <option>tc_signals</option> may be used, it has to be initialized with a call
+      to <option>tc_signal_init()</option>. It may not be used after a call to its destructor
+      <option>tc_signal_destroy()</option>.
+    </para>
+    <para>
+      A call to <option>tc_signal_subscribe()</option> enables interruption of sleeping
+      libtc calls by that signal for the current tc_thread. Sleeping libtc functions
+      are:
+      <citerefentry><refentrytitle>tc_wait_fd</refentrytitle><manvolnum>3</manvolnum></citerefentry>, 
+      <citerefentry><refentrytitle>tc_mutex_lock</refentrytitle><manvolnum>3</manvolnum></citerefentry>,
+      <citerefentry><refentrytitle>tc_thread_wait</refentrytitle><manvolnum>3</manvolnum></citerefentry>,
+      <citerefentry><refentrytitle>tc_thread_pool_wait</refentrytitle><manvolnum>3</manvolnum></citerefentry> and
+      <citerefentry><refentrytitle>tc_sleep</refentrytitle><manvolnum>3</manvolnum></citerefentry>.
+    </para>
+    <para>
+      <option>tc_signal_unsubscribe()</option> disables interruption of sleeping
+      libtc calls by the passed signal, and subscription object. Note: You have to unsubscribe
+      all tc_signals before calling <citerefentry><refentrytitle>tc_die</refentrytitle>
+	<manvolnum>3</manvolnum></citerefentry> or returning from the top most function
+      of a tc_thread.
+    </para>
+    <para>
+      <option>tc_signal_fire()</option> activates a signal once, for all subscribers of
+      that signal.
+    </para>
+  </refsection>
+  <xi:include href="author.xml" xmlns:xi="http://www.w3.org/2001/XInclude" />
+</refentry>

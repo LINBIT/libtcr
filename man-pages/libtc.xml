@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE refentry PUBLIC "-//OASIS//DTD DocBook XML V4.5//EN"
+"http://www.oasis-open.org/docbook/xml/4.5/docbookx.dtd">
+<refentry>
+  <xi:include href="product.xml" xmlns:xi="http://www.w3.org/2001/XInclude" />
+  <refmeta>
+    <refentrytitle>libtc</refentrytitle>
+    <manvolnum>3</manvolnum>
+    <refmiscinfo class="manual">libtc documentation</refmiscinfo>
+  </refmeta>
+
+  <refnamediv>
+    <refname>libtc</refname>
+    <refpurpose>Threaded co-routines library</refpurpose>
+  </refnamediv>
+
+  <refsynopsisdiv>
+    <cmdsynopsis>
+      <command>-l tc -l pthread</command>
+    </cmdsynopsis>
+  </refsynopsisdiv>
+
+  <refsection>
+    <title>Description</title>
+
+    <para>The threaded co-routine library is a framework for writing network
+    server applications. The focus of the library is to enable the developer
+    to write servers that make use of multiple CPUs/cores to handle requests
+    of a single connection in a pipelined fashion. The framework is based on
+    <citerefentry>
+        <refentrytitle>epoll</refentrytitle>
+
+        <manvolnum>4</manvolnum>
+      </citerefentry>, <citerefentry>
+        <refentrytitle>eventfd</refentrytitle>
+
+        <manvolnum>2</manvolnum>
+      </citerefentry> and <citerefentry>
+        <refentrytitle>timerfd</refentrytitle>
+
+        <manvolnum>2</manvolnum>
+      </citerefentry> system calls of Linux, requires a 2.6.25 or later Linux
+    kernel.</para>
+
+    <para></para>
+  </refsection>
+  <xi:include href="author.xml" xmlns:xi="http://www.w3.org/2001/XInclude" />
+</refentry>

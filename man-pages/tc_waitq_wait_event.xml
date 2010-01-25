@@ -1,0 +1,123 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE refentry PUBLIC "-//OASIS//DTD DocBook XML V4.5//EN"
+"http://www.oasis-open.org/docbook/xml/4.5/docbookx.dtd">
+<refentry>
+  <xi:include href="product.xml" xmlns:xi="http://www.w3.org/2001/XInclude" />
+  <refmeta>
+    <refentrytitle>tc_waitq_wait_event</refentrytitle>
+    <manvolnum>3</manvolnum>
+    <refmiscinfo class="manual">libtc documentation</refmiscinfo>
+  </refmeta>
+
+  <refnamediv>
+    <refname>tc_waitq_init</refname>
+    <refname>tc_waitq_wakeup_all</refname>
+    <refname>tc_waitq_wakeup_one</refname>
+    <refname>tc_waitq_wait_event</refname>
+    <refname>tc_waitq_unregister</refname>
+
+    <refpurpose>libtc wait queue functions</refpurpose>
+  </refnamediv>
+
+  <refsynopsisdiv>
+    <cmdsynopsis>
+      <command>#include &lt;tc/threaded_cr.h&gt;</command>
+    </cmdsynopsis>
+    <cmdsynopsis>
+      <command>void tc_waitq_init(struct tc_waitq *<replaceable>wq</replaceable>);</command>
+    </cmdsynopsis>
+    <cmdsynopsis>
+      <command>enum tc_rv tc_waitq_wait_event(struct tc_waitq *<replaceable>wq</replaceable>, <replaceable>CONDITION</replaceable>);</command>
+    </cmdsynopsis>
+    <cmdsynopsis>
+      <command>void tc_waitq_wakeup_all(struct tc_waitq *<replaceable>wq</replaceable>);</command>
+    </cmdsynopsis>
+    <cmdsynopsis>
+      <command>void tc_waitq_wakeup_one(struct tc_waitq *<replaceable>wq</replaceable>);</command>
+    </cmdsynopsis>
+    <cmdsynopsis>
+      <command>void tc_waitq_unregister(struct tc_waitq *<replaceable>wq</replaceable>);</command>
+    </cmdsynopsis>
+  </refsynopsisdiv>
+
+  <refsection>
+    <title>Description</title>
+    <para>
+      <option>tc_waitq</option>s are can be used to wait for an arbitrary condition in
+      one tc_thread.
+    </para>
+    <para>
+      Before a <option>tc_waitq</option> may be used, it has to be initialized with a call
+      to <option>tc_waitq_init()</option>. It may not be used after a call to its destructor
+      <option>tc_waitq_unregister()</option>.
+    </para>
+    <para>
+      When one tc_thread potentially changes some state, so that a waiting for condition
+      might become true for an other thread it can trigger re-evaluation of the waiting
+      condition in other threads by calls to <option>tc_waitq_wakeup_all()</option> or
+      <option>tc_waitq_wakeup_one()</option>. The former wakes all tc_threads sleeping
+      on that tc_waitq, while the latter wakes only one.
+    </para>
+    <para>
+      The <option>tc_waitq_wait_event()</option> macro sleeps on an tc_waitq until
+      the <replaceable>CONDITION</replaceable> evaluates to true.
+    </para>
+  </refsection>
+  <refsection>
+    <title>Return value</title>
+    <para>
+      <option>tc_waitq_wait_event()</option> returns <option>RV_OK</option> if the
+      condition became true and <option>RV_INTR</option> if the call was interrupted
+      by a tc_signal.
+    </para>
+  </refsection>
+  <refsection>
+    <title>Example</title>
+    <para>
+      The following example outlines a simple memory allocator, that blocks further
+      allocations when it is exhausted.
+      <programlisting format="linespecific">
+struct mempool {
+	atomic_t available;
+	struct tc_waitq wq;
+};
+
+void mempool_init(struct mempool *mp, int size)
+{
+	atomic_set(&amp;mp-&gt;available, size);
+	tc_waitq_init(&amp;mp-&gt;wq);
+}
+
+static int _try_alloc(struct mempool *mp, int size)
+{
+	if (atomic_sub_return(size, &amp;mp-&gt;available) &gt; 0)
+		return 1;
+
+	atomic_add_return(size, &amp;mp-&gt;available);
+	return 0;
+}
+
+void *mempool_alloc(struct mempool *mp, int size)
+{
+	void *rv;
+
+	if (tc_waitq_wait_event(&amp;mp-&gt;wq, _try_alloc(mp, size) == 1) != RV_OK)
+		return NULL;
+
+	rv = malloc(size);
+	if (!rv)
+		atomic_add_return(size, &amp;mp-&gt;available);
+	return rv;
+}
+
+void mempool_free(struct mempool *mp, void* mem, int size)
+{
+	free(mem);
+	atomic_add_return(size, &amp;mp-&gt;available);
+	tc_waitq_wakeup(&amp;mp-&gt;wq);
+}
+      </programlisting>
+    </para>
+  </refsection>
+  <xi:include href="author.xml" xmlns:xi="http://www.w3.org/2001/XInclude" />
+</refentry>

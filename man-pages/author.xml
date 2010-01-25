@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE refentry PUBLIC "-//OASIS//DTD DocBook XML V4.5//EN"
+"http://www.oasis-open.org/docbook/xml/4.5/docbookx.dtd">
+
+<refsection>
+  <title>Author</title>
+  <para>
+    <author>
+      <personname>
+        <firstname>Philipp</firstname>
+        <surname>Reisner</surname>
+        <!-- <othername role='mi'>E.</othername> -->
+      </personname>
+      <email>philipp.reisner@linbit.com</email>
+      <affiliation>
+        <shortaffil>LINBIT</shortaffil>
+        <orgname>LINBIT HA-Solutions GmbH</orgname>
+      </affiliation>
+    </author>
+  </para>
+</refsection>

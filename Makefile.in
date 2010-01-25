@@ -5,9 +5,9 @@ LDFLAGS :=-lpthread -g
 
 export CFLAGS LDFLAGS
 
-.PHONY: tests libtc.a clean 
+.PHONY: tests libtc.a clean man-pages
 
-all: libtc.a tests
+all: libtc.a tests man-pages
 
 tests:
 	$(MAKE) -r -C tests
@@ -15,7 +15,10 @@ tests:
 clean:
 	$(MAKE) -C tc clean
 	$(MAKE) -r -C tests clean
+	$(MAKE) -C man-pages clean
 
 libtc.a:
 	$(MAKE) -C tc
 
+man-pages:
+	$(MAKE) -C man-pages
