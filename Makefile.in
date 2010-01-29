@@ -1,5 +1,5 @@
-CFLAGS  := @CFLAGS@
-LDFLAGS :=-lpthread -g
+override CFLAGS  += @CFLAGS@
+override LDFLAGS :=-lpthread -g
 
 ####
 

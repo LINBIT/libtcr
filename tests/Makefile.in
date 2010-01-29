@@ -1,5 +1,5 @@
-CFLAGS  = @CFLAGS@ -I..
-LDFLAGS += -L../tc -ltc -lpthread
+override CFLAGS += @CFLAGS@ -I..
+override LDFLAGS += -L../tc -ltc -lpthread
 
 TARGETS := main tc_mutex_test1 tc_mutex_test2 tc_waitq_test tc_waitq_test2
 TARGETS += tc_waitq_test3 tc_waitq_test5 leak_test leak_test2 yield_test

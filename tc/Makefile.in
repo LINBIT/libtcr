@@ -1,4 +1,4 @@
-CFLAGS=@CFLAGS@
+override CFLAGS += @CFLAGS@
 ARCH	:= $(shell uname -m | sed -e s/i.86/i386/)
 
 .PHONY: clean
