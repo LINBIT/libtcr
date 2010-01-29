@@ -9,6 +9,7 @@
 #include <stdlib.h>
 #include <stdarg.h>
 #include <assert.h>
+#include <sched.h>
 
 #include "compat.h"
 #include "atomic.h"
@@ -524,7 +525,17 @@ static void scheduler_part2()
 
 void tc_worker_init(int i)
 {
+	cpu_set_t cpus;
+
 	cr_init();
+
+	CPU_ZERO(&cpus);
+	CPU_SET(i, &cpus);
+
+	if (sched_setaffinity(getpid(), sizeof(cpus), &cpus) != 0) {
+		msg("sched_setaffinity: %s\n", strerror(errno));
+		msg_exit(1, "sched_setaffinity(%d) failed.\n", i);
+	}
 
 	worker.nr = i;
 	asprintf(&worker.main_thread.name, "main_thread_%d", i);
