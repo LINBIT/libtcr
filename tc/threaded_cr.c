@@ -505,7 +505,6 @@ static void scheduler_part2()
 				   condition immediately. Since this might be done by
 				   all workers concurrently, ignore failures here.*/
 				epoll_ctl(sched.efd, EPOLL_CTL_DEL, tcfd->fd, &epe);
-				msg("Removed fd %d from epoll set because of ERR/HUP\n", tcfd->fd);
 			}
 
 			spin_unlock(&tcfd->events.lock);
