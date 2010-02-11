@@ -532,10 +532,8 @@ void tc_worker_init(int i)
 	CPU_ZERO(&cpus);
 	CPU_SET(i, &cpus);
 
-	if (sched_setaffinity(getpid(), sizeof(cpus), &cpus) != 0) {
-		msg("sched_setaffinity: %s\n", strerror(errno));
-		msg_exit(1, "sched_setaffinity(%d) failed.\n", i);
-	}
+	if (sched_setaffinity(getpid(), sizeof(cpus), &cpus))
+		msg_exit(1, "sched_setaffinity(%d): %m\n", i);
 
 	worker.nr = i;
 	asprintf(&worker.main_thread.name, "main_thread_%d", i);
