@@ -157,6 +157,7 @@ void tc_waitq_init(struct tc_waitq *wq);
 void tc_waitq_wakeup_all(struct tc_waitq *wq);
 void tc_waitq_wakeup_one(struct tc_waitq *wq);
 void tc_waitq_unregister(struct tc_waitq *wq);
+void tc_waitq_wait(struct tc_waitq *wq);
 
 /* Source compatibility stuff. In new code use the _one or _all variant*/
 #define tc_waitq_wakeup(WQ) tc_waitq_wakeup_all(WQ)
