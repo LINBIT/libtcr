@@ -78,6 +78,7 @@ struct scheduler {
 #ifdef WAIT_DEBUG
 #undef tc_sched_yield
 #undef tc_wait_fd
+#undef tc_wait_fd_prio
 #undef tc_mutex_lock
 #undef tc_thread_wait
 #undef tc_waitq_wait
@@ -148,16 +149,22 @@ static __uint32_t calc_epoll_event_mask(struct events *es)
 static struct event *matching_event(__uint32_t em, struct events *es)
 {
 	struct event *e;
+	struct event *en = NULL; /* naive match */
+	struct event *ew = NULL; /* match on this worker */
+
 	/* prefer events of threads that prefer this worker */
 	CIRCLEQ_FOREACH(e, es, e_chain) {
-		if (em & e->ep_events && e->tc->worker_nr == worker.nr)
-			return e;
+		if (em & e->ep_events) {
+			if (!en)
+				en = e;
+			if (!ew && e->tc->worker_nr == worker.nr)
+				ew = e;
+			if (e->flags == EF_PRIORITY)
+				return e;
+		}
 	}
-	CIRCLEQ_FOREACH(e, es, e_chain) {
-		if (em & e->ep_events)
-			return e;
-	}
-	return NULL;
+
+	return ew ? ew : en;
 }
 
 /* must_hold tcfd->lock */
@@ -353,6 +360,7 @@ static int _run_immediate(int nr)
 		}
 		spin_unlock(&sched.immediate.lock);
 		switch (e->flags) {
+		case EF_PRIORITY:
 		case EF_READY:
 		case EF_SIGNAL:
 			if (!CIRCLEQ_EMPTY(&sched.immediate.events))
@@ -648,14 +656,14 @@ enum tc_rv tc_rearm(struct tc_fd *the_tc_fd)
 	return rv ? RV_FAILED : RV_OK;
 }
 
-enum tc_rv tc_wait_fd(__uint32_t ep_events, struct tc_fd *tcfd)
+enum tc_rv _tc_wait_fd(__uint32_t ep_events, struct tc_fd *tcfd, enum tc_event_flag ef)
 {
 	struct event e;
 	int r;
 
 	if (atomic_read(&tcfd->err_hup))
 		return RV_FAILED;
-	if (add_event_fd(&e, ep_events | EPOLLONESHOT, EF_READY, tcfd))
+	if (add_event_fd(&e, ep_events | EPOLLONESHOT, ef, tcfd))
 		return RV_FAILED;
 	tc_scheduler();
 	r = (worker.woken_by_event != &e);

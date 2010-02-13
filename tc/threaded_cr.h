@@ -16,6 +16,7 @@ enum tc_event_flag {
 	EF_READY       = 1, /* I am ready to run */
 	EF_EXITING     = 2, /* Free my struct tc_thread */
 	EF_SIGNAL      = 3, /* Like EF_READY, and free the event. */
+	EF_PRIORITY    = 4, /* LIKE EF_READY, but takes precedence. */
 };
 
 enum tc_rv {
@@ -122,8 +123,16 @@ enum tc_rv tc_thread_pool_wait(struct tc_thread_pool *threads);
  */
 struct tc_fd *tc_register_fd(int fd);
 void tc_unregister_fd(struct tc_fd *tcfd);
-enum tc_rv tc_wait_fd(__uint32_t ep_events, struct tc_fd *tcfd);
 enum tc_rv tc_rearm(struct tc_fd *the_tc_fd);
+enum tc_rv _tc_wait_fd(__uint32_t ep_events, struct tc_fd *tcfd, enum tc_event_flag ef);
+static inline enum tc_rv tc_wait_fd(__uint32_t ep_events, struct tc_fd *tcfd)
+{
+	return _tc_wait_fd(ep_events, tcfd, EF_READY);
+}
+static inline enum tc_rv tc_wait_fd_prio(__uint32_t ep_events, struct tc_fd *tcfd)
+{
+	return _tc_wait_fd(ep_events, tcfd, EF_PRIORITY);
+}
 static inline int tc_fd(struct tc_fd *tcfd)
 {
 	return tcfd->fd;
@@ -339,6 +348,7 @@ do {									\
 #ifdef WAIT_DEBUG
 #define tc_sched_yield()	({ SET_CALLER; tc_sched_yield(); UNSET_CALLER; })
 #define tc_wait_fd(E, T)	({ enum tc_rv rv; SET_CALLER; rv = tc_wait_fd(E, T); UNSET_CALLER; rv; })
+#define tc_wait_fd_prio(E, T)	({ enum tc_rv rv; SET_CALLER; rv = tc_wait_fd_prio(E, T); UNSET_CALLER; rv; })
 #define tc_mutex_lock(M)	({ enum tc_rv rv; SET_CALLER; rv = tc_mutex_lock(M); UNSET_CALLER; rv; })
 #define tc_thread_wait(T)	({ enum tc_rv rv; SET_CALLER; rv = tc_thread_wait(T); UNSET_CALLER; rv; })
 #define tc_waitq_wait(W)	({ SET_CALLER; tc_waitq_wait(W); UNSET_CALLER; })
