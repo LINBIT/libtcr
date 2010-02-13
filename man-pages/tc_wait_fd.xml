@@ -11,6 +11,7 @@
 
   <refnamediv>
     <refname>tc_wait_fd</refname>
+    <refname>tc_wait_fd_prio</refname>
     <refname>tc_register_fd</refname>
     <refname>tc_unregister_fd</refname>
     <refname>tc_rearm</refname>
@@ -31,6 +32,9 @@
     </cmdsynopsis>
     <cmdsynopsis>
       <command>enum tc_rv tc_wait_fd(__uint32_t <replaceable>ep_events</replaceable>, struct tc_fd *<replaceable>tcfd</replaceable>);</command>
+    </cmdsynopsis>
+    <cmdsynopsis>
+      <command>enum tc_rv tc_wait_fd_prio(__uint32_t <replaceable>ep_events</replaceable>, struct tc_fd *<replaceable>tcfd</replaceable>);</command>
     </cmdsynopsis>
     <cmdsynopsis>
       <command>enum tc_rv tc_rearm(struct tc_fd *<replaceable>the_tc_fd</replaceable>);</command>
@@ -59,7 +63,28 @@
       <replaceable>tcfd</replaceable>. <replaceable>ep_events</replaceable> may be
       <option>EPOLLIN</option>, <option>EPOLLOUT</option>, or any of 
       <citerefentry><refentrytitle>epoll_ctl</refentrytitle><manvolnum>2</manvolnum></citerefentry>'s
-      events. Note: <option>EPOLLONESHOT</option> gets implicitly added by libtc.
+      events.
+    </para>
+    <para>
+      Note: <option>EPOLLONESHOT</option> gets implicitly added by libtc.
+      In order to build high performing applications it is quite usual to have multiple
+      tc_threads waiting for a single event with <option>tc_wait_fd()</option>. Only one of all parallel
+      waiting tc_threads will get woken up.
+    </para>
+    <para>
+      <option>tc_wait_fd_prio()</option> acts like tc_wait_fd(), only that it always takes
+      precedence before all tc_threads waiting in <option>tc_wait_fd()</option>. I.e.
+      If the file descriptor gets ready <option>tc_wait_fd_prio()</option> will return if there
+      is one thread waiting with this function. Only if there is no one waiting with
+      <option>tc_wait_fd_prio()</option> a <option>tc_wait_fd()</option> call will return.
+    </para>
+    <para>
+      <option>tc_rearm()</option> rearms the events on the file
+      description. If a threads that waited in <option>tc_wait_fd()</option>
+      got woken up, and finished with read/write operations on the file
+      descriptor, with calling <option>tc_rearm()</option> it causes an
+      other tc_thread waiting for that file descriptor to become ready to
+      return from <option>tc_wait_fd()</option>.
     </para>
 
   </refsection>
