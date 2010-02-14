@@ -28,7 +28,7 @@ void starter(void *unused)
 	while (1) {
 		tc_mutex_init(&m);
 		fprintf(stdout, "beginning starter.\n");
-		tc_thread_pool_new(&t, worker, NULL, "worker %d");
+		tc_thread_pool_new(&t, worker, NULL, "worker %d", 0);
 		tc_thread_pool_wait(&t);
 		fprintf(stdout, "ending starter.\n");
 	}

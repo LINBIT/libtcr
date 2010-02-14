@@ -48,7 +48,7 @@ static void starter(void *unused)
 	tc_signal_init(&the_signal);
 
 	while (1) {
-		tc_thread_pool_new(&threads, drbd_connection, NULL, "DRBD conn %d");
+	  tc_thread_pool_new(&threads, drbd_connection, NULL, "DRBD conn %d", 0);
 		fprintf(stderr, "into tc_thread_pool_wait\n");
 		tc_thread_pool_wait(&threads);
 		fprintf(stderr, "out of tc_thread_pool_wait\n");

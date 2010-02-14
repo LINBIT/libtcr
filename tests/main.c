@@ -186,7 +186,7 @@ static void stdin_reader(void *data)
 	ri.mp = &mp;
 	ri.all_exit = &all_exit;
 	ri.in = tc_register_fd(fd);
-	tc_thread_pool_new(&sr, unix_socket_reader, &ri, "unix_socket_reader_%d");
+	tc_thread_pool_new(&sr, unix_socket_reader, &ri, "unix_socket_reader_%d", 0);
 
 	tcfd = tc_register_fd(fileno(stdin));
 	while(1) {

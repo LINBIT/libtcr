@@ -74,7 +74,7 @@ static void starter(void *unused)
 
 	while (1) {
 		the_accepter = tc_thread_new(accepter, NULL, "accepter");
-		tc_thread_pool_new(&threads, drbd_connection, NULL, "DRBD conn %d");
+		tc_thread_pool_new(&threads, drbd_connection, NULL, "DRBD conn %d", 0);
 		fprintf(stderr, "into tc_thread_pool_wait\n");
 		tc_thread_pool_wait(&threads);
 		fprintf(stderr, "out of tc_thread_pool_wait\n");

@@ -36,7 +36,7 @@ void starter(void *unused)
 
 	tc_mutex_init(&m);
 	fprintf(stdout, "beginning starter.\n");
-	tc_thread_pool_new(&t, worker, the_tc_fd, "worker");
+	tc_thread_pool_new(&t, worker, the_tc_fd, "worker", 0);
 	tc_thread_pool_wait(&t);
 	fprintf(stdout, "ending starter.\n");
 }

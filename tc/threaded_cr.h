@@ -111,7 +111,7 @@ void tc_set_diagnostic_fn(diagnostic_fn f);
    tc_thread_pool_new() creates a tc_thread instance of the supplied function on
    every worker.
  */
-void tc_thread_pool_new(struct tc_thread_pool *threads, void (*func)(void *), void *data, char* name);
+void tc_thread_pool_new(struct tc_thread_pool *threads, void (*func)(void *), void *data, char* name, int excess);
 enum tc_rv tc_thread_pool_wait(struct tc_thread_pool *threads);
 
 /* FDs
@@ -287,7 +287,7 @@ do {									\
 			   NULL,					\
 			   "tc_parallel_for:"				\
 			   __FILE__ ":"					\
-			   TO_STRING(__LINE__) " %d");			\
+			   TO_STRING(__LINE__) " %d", 0);		\
 									\
 	tc_thread_pool_wait(&TOKEN_PASTE(__tp_, COUNT));		\
 	void TOKEN_PASTE(__for_body_, COUNT)(typeof(VAR) VAR)		\

@@ -111,7 +111,7 @@ static void starter(void *unused)
 	used_mem = 0;
 	max_mem = 5;
 
-	tc_thread_pool_new(&threads, drbd_connection, NULL, "DRBD conn");
+	tc_thread_pool_new(&threads, drbd_connection, NULL, "DRBD conn", 0);
 	tc_thread_wait(tc_thread_new(drbd_connection_writer, NULL, "writer"));
 }
 

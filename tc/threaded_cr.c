@@ -761,19 +761,19 @@ struct tc_thread *tc_thread_new(void (*func)(void *), void *data, char* name)
 	return tc;
 }
 
-void tc_thread_pool_new(struct tc_thread_pool *threads, void (*func)(void *), void *data, char* name)
+void tc_thread_pool_new(struct tc_thread_pool *threads, void (*func)(void *), void *data, char* name, int excess)
 {
 	struct tc_thread *tc;
 	int i;
 	char *ename;
 
 	LIST_INIT(threads);
-	for (i = 0; i < sched.nr_of_workers; i++) {
+	for (i = 0; i < sched.nr_of_workers + excess; i++) {
 		asprintf(&ename, name, i);
 		tc = _tc_thread_new(func, data, ename);
 		if (!tc)
 			continue;
-		tc->flags |= TF_THREADS | TF_FREE_NAME | TF_AFFINE;
+		tc->flags |= TF_THREADS | TF_FREE_NAME | (i < sched.nr_of_workers ? TF_AFFINE : 0);
 		tc->worker_nr = i;
 		spin_lock(&sched.lock);
 		LIST_INSERT_HEAD(threads, tc, threads_chain);
