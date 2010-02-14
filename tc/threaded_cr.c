@@ -28,6 +28,7 @@ enum thread_flags {
 	TF_THREADS =   1 << 0, /* is on threads chain*/
 	TF_RUNNING =   1 << 1,
 	TF_FREE_NAME = 1 << 2,
+	TF_AFFINE  =   1 << 3, /* Wants to stay on that worker thread.*/
 };
 
 struct tc_thread {
@@ -294,7 +295,7 @@ static void switch_to(struct tc_thread *new)
 	int nr = worker.nr;
 
 	if (new->worker_nr != nr) {
-		if (!(new->flags & TF_THREADS))
+		if (!(new->flags & TF_AFFINE))
 			new->worker_nr = nr;
 	}
 	_switch_to(new);
@@ -772,7 +773,7 @@ void tc_thread_pool_new(struct tc_thread_pool *threads, void (*func)(void *), vo
 		tc = _tc_thread_new(func, data, ename);
 		if (!tc)
 			continue;
-		tc->flags |= TF_THREADS | TF_FREE_NAME;
+		tc->flags |= TF_THREADS | TF_FREE_NAME | TF_AFFINE;
 		tc->worker_nr = i;
 		spin_lock(&sched.lock);
 		LIST_INSERT_HEAD(threads, tc, threads_chain);
