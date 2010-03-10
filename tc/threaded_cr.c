@@ -75,6 +75,7 @@ struct scheduler {
 	spinlock_t sync_lock;
 	atomic_t sleeping_workers;
 	diagnostic_fn diagnostic;
+	int stack_size;            /* stack size for new tc_threads */
 };
 
 #ifdef WAIT_DEBUG
@@ -99,7 +100,10 @@ static void iwi_immediate();
 static int fprintf_stderr(const char *fmt, va_list ap);
 
 static struct scheduler sched = {
-	.diagnostic = fprintf_stderr
+	.diagnostic = fprintf_stderr,
+	.stack_size = DEFAULT_STACK_SIZE,
+	/* Everything else gets initialized in tc_int(). These two here so
+	   that tc_set_*() can be used before tc_run(). */
 };
 static struct tc_thread *tc_main;
 static __thread struct worker_struct worker;
@@ -112,6 +116,11 @@ static int fprintf_stderr(const char *fmt, va_list ap)
 void tc_set_diagnostic_fn(diagnostic_fn f)
 {
 	sched.diagnostic = f;
+}
+
+void tc_set_stack_size(int s)
+{
+	sched.stack_size = s;
 }
 
 void msg_exit(int code, const char *fmt, ...) __attribute__ ((__noreturn__));
@@ -726,7 +735,7 @@ static struct tc_thread *_tc_thread_new(void (*func)(void *), void *data, char* 
 	if (!tc)
 		goto fail2;
 
-	tc->cr = cr_create(tc_setup, func, data, DEFAULT_STACK_SIZE);
+	tc->cr = cr_create(tc_setup, func, data, sched.stack_size);
 	if (!tc->cr)
 		goto fail3;
 

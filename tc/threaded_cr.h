@@ -85,6 +85,10 @@ void tc_worker_init(int i);
 void tc_scheduler();
 void tc_sched_yield();
 
+typedef int (*diagnostic_fn)(const char *format, va_list ap);
+void tc_set_diagnostic_fn(diagnostic_fn f);
+void tc_set_stack_size(int size);
+
 /* Threads
    A tc_thread is a very light object: 4K stack. You can create a thread,
    and you can wait on the termination of a thread.
@@ -103,9 +107,6 @@ static inline char *tc_thread_name(struct tc_thread *tc)
 {
 	return *(char **)tc;
 }
-
-typedef int (*diagnostic_fn)(const char *format, va_list ap);
-void tc_set_diagnostic_fn(diagnostic_fn f);
 
 /* Bundles of threads
    tc_thread_pool_new() creates a tc_thread instance of the supplied function on
