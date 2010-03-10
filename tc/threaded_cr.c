@@ -535,6 +535,7 @@ static void scheduler_part2()
 void tc_worker_init(int i)
 {
 	cpu_set_t cpus;
+	int rv = 0;
 
 	cr_init();
 
@@ -545,7 +546,7 @@ void tc_worker_init(int i)
 		msg_exit(1, "sched_setaffinity(%d): %m\n", i);
 
 	worker.nr = i;
-	asprintf(&worker.main_thread.name, "main_thread_%d", i);
+	rv |= asprintf(&worker.main_thread.name, "main_thread_%d", i);
 	worker.main_thread.cr = cr_current();
 	cr_set_uptr(cr_current(), &worker.main_thread);
 	tc_waitq_init(&worker.main_thread.exit_waiters);
@@ -557,7 +558,9 @@ void tc_worker_init(int i)
 	worker.main_thread.worker_nr = i;
 	/* LIST_INSERT_HEAD(&sched.threads, &worker.main_thread, tc_chain); */
 
-	asprintf(&worker.sched_p2.name, "sched_%d", i);
+	rv |= asprintf(&worker.sched_p2.name, "sched_%d", i);
+	if (rv == -1)
+		msg_exit(1, "allocation in asprintf() failed\n");
 	worker.sched_p2.cr = cr_create(scheduler_part2, NULL, NULL, DEFAULT_STACK_SIZE);
 	if (!worker.sched_p2.cr)
 		msg_exit(1, "allocation of worker.sched_p2 failed\n");
@@ -769,7 +772,8 @@ void tc_thread_pool_new(struct tc_thread_pool *threads, void (*func)(void *), vo
 
 	LIST_INIT(threads);
 	for (i = 0; i < sched.nr_of_workers + excess; i++) {
-		asprintf(&ename, name, i);
+		if (asprintf(&ename, name, i) == -1)
+			msg_exit(1, "allocation in asprintf() failed\n");
 		tc = _tc_thread_new(func, data, ename);
 		if (!tc)
 			continue;
