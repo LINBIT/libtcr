@@ -74,6 +74,7 @@ struct scheduler {
 	pthread_barrier_t *volatile sync_b;
 	spinlock_t sync_lock;
 	atomic_t sleeping_workers;
+	diagnostic_fn diagnostic;
 };
 
 #ifdef WAIT_DEBUG
@@ -90,26 +91,27 @@ __thread char *_caller_file = "untracked tc_scheduler() call";
 __thread int _caller_line = 0;
 #endif
 
-static struct scheduler sched;
-static struct tc_thread *tc_main;
-static __thread struct worker_struct worker;
-
 static void _signal_gets_delivered(struct event *e);
 static void signal_cancel_pending();
 static void _synchronize_world();
 static void synchronize_world();
 static void iwi_immediate();
+static int fprintf_stderr(const char *fmt, va_list ap);
 
-diagnostic_fn diagnostic = NULL;
+static struct scheduler sched = {
+	.diagnostic = fprintf_stderr
+};
+static struct tc_thread *tc_main;
+static __thread struct worker_struct worker;
 
-int fprintf_stderr(const char *fmt, va_list ap)
+static int fprintf_stderr(const char *fmt, va_list ap)
 {
 	return vfprintf(stderr, fmt, ap);
 }
 
 void tc_set_diagnostic_fn(diagnostic_fn f)
 {
-	diagnostic = f;
+	sched.diagnostic = f;
 }
 
 void msg_exit(int code, const char *fmt, ...) __attribute__ ((__noreturn__));
@@ -118,7 +120,7 @@ void msg_exit(int code, const char *fmt, ...)
 	va_list ap;
 
 	va_start(ap, fmt);
-	diagnostic(fmt, ap);
+	sched.diagnostic(fmt, ap);
 	va_end(ap);
 
 	exit(code);
@@ -129,7 +131,7 @@ void msg(const char *fmt, ...)
 	va_list ap;
 
 	va_start(ap, fmt);
-	diagnostic(fmt, ap);
+	sched.diagnostic(fmt, ap);
 	va_end(ap);
 }
 
@@ -577,9 +579,6 @@ void tc_worker_init(int i)
 void tc_init()
 {
 	struct epoll_event epe;
-
-	if (diagnostic == NULL)
-		tc_set_diagnostic_fn(fprintf_stderr);
 
 	event_list_init(&sched.immediate);
 	LIST_INIT(&sched.threads);
