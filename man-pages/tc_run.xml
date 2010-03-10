@@ -13,6 +13,9 @@
     <refname>tc_run</refname>
     <refname>tc_init</refname>
     <refname>tc_worker_init</refname>
+    <refname>tc_worker_init</refname>
+    <refname>tc_set_diagnostic_fn</refname>
+    <refname>tc_set_stack_size</refname>
 
     <refpurpose>libtc initialization</refpurpose>
   </refnamediv>
@@ -30,22 +33,45 @@
     <cmdsynopsis>
       <command>void tc_worker_init();</command>
     </cmdsynopsis>
+    <cmdsynopsis>
+      <command>void tc_set_diagnostic_fn(diagnostic_fn <replaceable>f</replaceable>);</command>
+    </cmdsynopsis>
+    <cmdsynopsis>
+      <command>void tc_set_stack_size(int <replaceable>size</replaceable>);</command>
+    </cmdsynopsis>
   </refsynopsisdiv>
 
   <refsection>
     <title>Description</title>
 
     <para>The most convenient way of using the tc-library is to call 
-      <replaceable>tc_run()</replaceable>. Alternatively call <replaceable>tc_init()</replaceable>
-      once, create you thread pool, call <replaceable>tc_worker_init()</replaceable> and 
-      <replaceable>tc_scheduler()</replaceable> in each thread of the pool.
+      <option>tc_run()</option>. Alternatively call <option>tc_init()</option>
+      once, create you thread pool, call <option>tc_worker_init()</option> and 
+      <option>tc_scheduler()</option> in each thread of the pool.
     </para>
     <para>
-      tc_run() creates <replaceable>nr_of_workers</replaceable> threads using
+      <option>tc_run()</option> creates <replaceable>nr_of_workers</replaceable> threads using
       <citerefentry><refentrytitle>pthread_create</refentrytitle><manvolnum>3</manvolnum></citerefentry>
       and calls tc_scheduler() in these threads. After that it calls the
       provided <replaceable>func</replaceable>. When <replaceable>func</replaceable>
       returns the thread pools gets destroyed.
+    </para>
+    <para>
+      <option>tc_set_diagnostic_fn()</option> can be used to alter the target of the tc-library's
+      emergency messages. By default they are written to <option>stderr</option>.
+      This function is one of the few functions that might be called before
+      <option>tc_init()</option> was called. In fact, it is recommended
+      to call it before calling <option>tc_init()</option> because
+      the tc-library might terminate the program if for example
+      <citerefentry><refentrytitle>epoll_create</refentrytitle><manvolnum>2</manvolnum></citerefentry>
+      fails.
+    </para>
+    <para>
+      <option>tc_set_stack_size()</option> sets the stack size of tc_threads created later on with
+      <citerefentry><refentrytitle>tc_thread_new</refentrytitle><manvolnum>3</manvolnum></citerefentry>
+      or
+      <citerefentry><refentrytitle>tc_thread_pool_new</refentrytitle><manvolnum>3</manvolnum></citerefentry>
+      .
     </para>
   </refsection>
   <refsection>
