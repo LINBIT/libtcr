@@ -50,7 +50,8 @@
     <para>
       <option>tc_register_fd()</option> adds a <replaceable>fd</replaceable> to the library's
       data structures and the epoll-fd. You need to register each <replaceable>fd</replaceable>
-      you want to wait later on.
+      you want to wait later on. Note: <option>tc_register_fd()</option> sets the
+      <option>O_NONBLOCK</option> flag on the file descriptor.
     </para>
     <para>
       <option>tc_unregister_fd()</option> removes a file descriptor from the library's
