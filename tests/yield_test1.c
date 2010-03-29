@@ -1,8 +1,4 @@
 #include <tc/threaded_cr.h>
-#include <tc/atomic.h>
-
-struct tc_signal the_drbd_signal;
-struct tc_signal the_signal;
 
 static void func(void *str)
 {
