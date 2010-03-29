@@ -1219,19 +1219,18 @@ enum tc_rv tc_sleep(int clockid, time_t sec, long nsec)
 
 #ifdef WAIT_DEBUG
 
-
 /* This is a handy function to be called from within gdb */
 
 void tc_dump_threads(void)
 {
 	struct tc_thread *t;
-	int i=0;
 
-	for (t=LIST_FIRST(&sched.threads);t!=NULL;t=LIST_NEXT(t, tc_chain)) {
-		fprintf(stderr, "Thread %s(%p) waiting at %s:%d\n", t->name, t, t->sleep_file, t->sleep_line);
-		i++;
+	LIST_FOREACH(t, &sched.threads, tc_chain) {
+		if (t->sleep_line)
+			msg("Thread %s(%p) waiting at %s:%d\n", t->name, t, t->sleep_file, t->sleep_line);
+		else
+			msg("Thread %s(%p) running\n", t->name, t);
 	}
-	fprintf(stderr, "%d thread(s) listed.\n", i);
 }
 
 #endif
