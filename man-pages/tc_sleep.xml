@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE refentry PUBLIC "-//OASIS//DTD DocBook XML V4.5//EN"
+"http://www.oasis-open.org/docbook/xml/4.5/docbookx.dtd">
+<refentry>
+  <xi:include href="product.xml" xmlns:xi="http://www.w3.org/2001/XInclude" />
+  <refmeta>
+    <refentrytitle>tc_sleep</refentrytitle>
+    <manvolnum>3</manvolnum>
+    <refmiscinfo class="manual">libtc documentation</refmiscinfo>
+  </refmeta>
+
+  <refnamediv>
+    <refname>tc_sleep</refname>
+    <refname>tc_sched_yield</refname>
+
+    <refpurpose>sleep functions</refpurpose>
+  </refnamediv>
+
+  <refsynopsisdiv>
+    <cmdsynopsis>
+      <command>#include &lt;tc/threaded_cr.h&gt;</command>
+    </cmdsynopsis>
+    <cmdsynopsis>
+      <command>enum tc_rv tc_sleep(int <replaceable>clockid</replaceable>, time_t <replaceable>sec</replaceable>, long <replaceable>nsec</replaceable>);</command>
+    </cmdsynopsis>
+    <cmdsynopsis>
+      <command>void tc_sched_yield();</command>
+    </cmdsynopsis>
+  </refsynopsisdiv>
+
+  <refsection>
+    <title>Description</title>
+
+    <para>
+      <option>tc_sleep()</option> sleeps for <replaceable>sec</replaceable> seconds and
+      <replaceable>nsec</replaceable> nano seconds. <replaceable>Clockid</replaceable>
+      might be one of <constant>CLOCK_REALTIME</constant> or <constant>CLOCK_MONOTONIC</constant>.
+      <constant>CLOCK_REALTIME</constant> can be set with the appropriate privileges, 
+      <constant>CLOCK_MONOTONIC</constant> is a strictly monotonic time since some unspecified
+      starting point. It can not be set.
+    </para>
+    <para>
+      The <option>tc_sched_yield()</option> places the current tc_thread at the end of the
+      queue, and runs the queue. Potentially this gives other tc_threads a chance to run.
+    </para>
+    <para>
+      This function is provided for sake of completeness. The use of this function is 
+      usually not required, since libtc is designed to work with multiple system level
+      worker threads.
+    </para>
+  </refsection>
+  <xi:include href="author.xml" xmlns:xi="http://www.w3.org/2001/XInclude" />
+</refentry>

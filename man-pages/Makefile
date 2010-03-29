@@ -9,7 +9,7 @@ XSLTPROC_MANPAGES_OPTIONS ?= $(XSLTPROC_OPTIONS)
 XSLTPROC_HTML_OPTIONS ?= $(XSLTPROC_OPTIONS)
 XSLTPROC_FO_OPTIONS ?= $(XSLTPROC_OPTIONS)
 
-MANPAGES       := libtc.3 tc_run.3 tc_thread_new.3 tc_thread_pool_new.3 tc_wait_fd.3 tc_mutex_lock.3 tc_signal_subscribe.3 tc_waitq_wait_event.3 tc_parallel_for.3
+MANPAGES       := libtc.3 tc_run.3 tc_thread_new.3 tc_thread_pool_new.3 tc_wait_fd.3 tc_mutex_lock.3 tc_signal_subscribe.3 tc_waitq_wait_event.3 tc_parallel_for.3 tc_sleep.3
 
 .SUFFIXES: .xml .3 .html .pdf .ps
 
