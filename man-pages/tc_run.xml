@@ -54,7 +54,7 @@
       <citerefentry><refentrytitle>pthread_create</refentrytitle><manvolnum>3</manvolnum></citerefentry>
       and calls tc_scheduler() in these threads. After that it calls the
       provided <replaceable>func</replaceable>. When <replaceable>func</replaceable>
-      returns the thread pools gets destroyed.
+      returns the thread pool of worker threads gets destroyed.
     </para>
     <para>
       <option>tc_set_diagnostic_fn()</option> can be used to alter the target of the tc-library's

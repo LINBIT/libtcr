@@ -64,8 +64,9 @@
       <citerefentry><refentrytitle>tc_wait_fd</refentrytitle><manvolnum>3</manvolnum></citerefentry>, 
       <citerefentry><refentrytitle>tc_mutex_lock</refentrytitle><manvolnum>3</manvolnum></citerefentry>,
       <citerefentry><refentrytitle>tc_thread_wait</refentrytitle><manvolnum>3</manvolnum></citerefentry>,
-      <citerefentry><refentrytitle>tc_thread_pool_wait</refentrytitle><manvolnum>3</manvolnum></citerefentry> and
-      <citerefentry><refentrytitle>tc_sleep</refentrytitle><manvolnum>3</manvolnum></citerefentry>.
+      <citerefentry><refentrytitle>tc_thread_pool_wait</refentrytitle><manvolnum>3</manvolnum></citerefentry>,
+      <citerefentry><refentrytitle>tc_sleep</refentrytitle><manvolnum>3</manvolnum></citerefentry> and
+      <citerefentry><refentrytitle>tc_waitq_wait_event</refentrytitle><manvolnum>3</manvolnum></citerefentry>.
     </para>
     <para>
       <option>tc_signal_unsubscribe()</option> disables interruption of sleeping

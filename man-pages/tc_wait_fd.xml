@@ -74,7 +74,7 @@
     </para>
     <para>
       <option>tc_wait_fd_prio()</option> acts like tc_wait_fd(), only that it always takes
-      precedence before all tc_threads waiting in <option>tc_wait_fd()</option>. I.e.
+      precedence over all tc_threads waiting in <option>tc_wait_fd()</option>. I.e.
       If the file descriptor gets ready <option>tc_wait_fd_prio()</option> will return if there
       is one thread waiting with this function. Only if there is no one waiting with
       <option>tc_wait_fd_prio()</option> a <option>tc_wait_fd()</option> call will return.

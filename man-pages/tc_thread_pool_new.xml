@@ -21,7 +21,7 @@
       <command>#include &lt;tc/threaded_cr.h&gt;</command>
     </cmdsynopsis>
     <cmdsynopsis>
-      <command>void tc_thread_pool_new(struct tc_thread_pool *<replaceable>threads</replaceable>, void (*<replaceable>func</replaceable>)(void *), void *<replaceable>data</replaceable>, char* <replaceable>name</replaceable>);</command>
+      <command>void tc_thread_pool_new(struct tc_thread_pool *<replaceable>threads</replaceable>, void (*<replaceable>func</replaceable>)(void *), void *<replaceable>data</replaceable>, char* <replaceable>name</replaceable>, int <replaceable>excess</replaceable>);</command>
     </cmdsynopsis>
     <cmdsynopsis>
       <command>enum tc_rv tc_thread_pool_wait(struct tc_thread_pool *<replaceable>threads</replaceable>);</command>
@@ -33,11 +33,14 @@
     <title>Description</title>
 
     <para>
-      <option>tc_thread_pool_new()</option> creates a new user level thread on each system
+      <option>tc_thread_pool_new()</option> creates a new user space thread on each system
       level thread. <replaceable>Data</replaceable> gets passed to <replaceable>func</replaceable>
       which is called in each of the created threads. The string passed as 
       <replaceable>name</replaceable> should contain the "%d" sequence. It gets replaced
-      by consecutive numbers.
+      by consecutive numbers. If <replaceable>excess</replaceable> is greater than 0 than
+      <replaceable>excess</replaceable> additional number of threads are created. If
+      <replaceable>excess</replaceable> is less than 0, that number less than number
+      of system level worker threads are created in the pools of user space threads.
     </para>
 
     <para>

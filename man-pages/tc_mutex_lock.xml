@@ -49,7 +49,7 @@
       with a call to <option>tc_mutex_destroy()</option>.
     </para>
     <para>
-      A call to <option>tc_mutex_lock</option> locks the mutex, and returns immediately
+      A call to <option>tc_mutex_lock()</option> locks the mutex, and returns immediately
       if the mutex was unlocked before. If the mutex was locked, the call blocks until
       the mutex gets unlocked by an other tc_thread. I.e. only one tc_thread can hold
       the mutex lock at a time.
