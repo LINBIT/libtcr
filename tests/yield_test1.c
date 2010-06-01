@@ -1,4 +1,4 @@
-#include <tc/threaded_cr.h>
+#include <tcr/threaded_cr.h>
 
 static void func(void *str)
 {

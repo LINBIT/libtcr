@@ -4,13 +4,13 @@
 <refentry>
   <xi:include href="product.xml" xmlns:xi="http://www.w3.org/2001/XInclude" />
   <refmeta>
-    <refentrytitle>libtc</refentrytitle>
+    <refentrytitle>libtcr</refentrytitle>
     <manvolnum>3</manvolnum>
-    <refmiscinfo class="manual">libtc documentation</refmiscinfo>
+    <refmiscinfo class="manual">libtcr documentation</refmiscinfo>
   </refmeta>
 
   <refnamediv>
-    <refname>libtc</refname>
+    <refname>libtcr</refname>
     <refpurpose>Threaded co-routines library</refpurpose>
   </refnamediv>
 

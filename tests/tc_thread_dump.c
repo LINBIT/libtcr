@@ -2,7 +2,7 @@
 #include <signal.h>
 #include <sys/types.h>
 #include <unistd.h>
-#include <tc/threaded_cr.h>
+#include <tcr/threaded_cr.h>
 
 static void stdin_reader(void *data)
 {

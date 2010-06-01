@@ -6,7 +6,7 @@
   <refmeta>
     <refentrytitle>tc_signal_subscribe</refentrytitle>
     <manvolnum>3</manvolnum>
-    <refmiscinfo class="manual">libtc documentation</refmiscinfo>
+    <refmiscinfo class="manual">libtcr documentation</refmiscinfo>
   </refmeta>
 
   <refnamediv>
@@ -16,7 +16,7 @@
     <refname>tc_signal_fire</refname>
     <refname>tc_signal_destroy</refname>
 
-    <refpurpose>libtc signaling functions</refpurpose>
+    <refpurpose>libtcr signaling functions</refpurpose>
   </refnamediv>
 
   <refsynopsisdiv>
@@ -48,7 +48,7 @@
     </para>
     <para>
       Signals are guaranteed to get delivered once. When the subscriber of the signal
-      does not sleep in a sleeping libtc call, then the signal will get delivered when
+      does not sleep in a sleeping libtcr call, then the signal will get delivered when
       a sleeping function is called the next time. A signal that is fired multiple times
       before it gets delivered, gets delivered only once.
     </para>
@@ -59,7 +59,7 @@
     </para>
     <para>
       A call to <option>tc_signal_subscribe()</option> enables interruption of sleeping
-      libtc calls by that signal for the current tc_thread. Sleeping libtc functions
+      libtcr calls by that signal for the current tc_thread. Sleeping libtcr functions
       are:
       <citerefentry><refentrytitle>tc_wait_fd</refentrytitle><manvolnum>3</manvolnum></citerefentry>, 
       <citerefentry><refentrytitle>tc_mutex_lock</refentrytitle><manvolnum>3</manvolnum></citerefentry>,
@@ -70,7 +70,7 @@
     </para>
     <para>
       <option>tc_signal_unsubscribe()</option> disables interruption of sleeping
-      libtc calls by the passed signal, and subscription object. Note: You have to unsubscribe
+      libtcr calls by the passed signal, and subscription object. Note: You have to unsubscribe
       all tc_signals before calling <citerefentry><refentrytitle>tc_die</refentrytitle>
 	<manvolnum>3</manvolnum></citerefentry> or returning from the top most function
       of a tc_thread.

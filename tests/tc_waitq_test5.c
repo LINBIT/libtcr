@@ -8,8 +8,8 @@
 #include <semaphore.h>
 #include <arpa/inet.h>
 
-#include "tc/threaded_cr.h"
-#include "tc/atomic.h"
+#include "tcr/threaded_cr.h"
+#include "tcr/atomic.h"
 
 struct tc_waitq memory_wq;
 

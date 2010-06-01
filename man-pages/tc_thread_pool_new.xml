@@ -6,14 +6,14 @@
   <refmeta>
     <refentrytitle>tc_thread_pool_new</refentrytitle>
     <manvolnum>3</manvolnum>
-    <refmiscinfo class="manual">libtc documentation</refmiscinfo>
+    <refmiscinfo class="manual">libtcr documentation</refmiscinfo>
   </refmeta>
 
   <refnamediv>
     <refname>tc_thread_pool_new</refname>
     <refname>tc_thread_pool_wait</refname>
 
-    <refpurpose>libtc thread bundle functions</refpurpose>
+    <refpurpose>libtcr thread bundle functions</refpurpose>
   </refnamediv>
 
   <refsynopsisdiv>

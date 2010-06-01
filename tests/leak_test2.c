@@ -1,6 +1,6 @@
 // #include "drbd-proxy.h"
-#include <tc/threaded_cr.h>
-#include <tc/atomic.h>
+#include <tcr/threaded_cr.h>
+#include <tcr/atomic.h>
 // #include "helpers.h"
 // #include "control.h"
 #include <sys/epoll.h>

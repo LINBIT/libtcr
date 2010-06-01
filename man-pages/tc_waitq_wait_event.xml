@@ -6,7 +6,7 @@
   <refmeta>
     <refentrytitle>tc_waitq_wait_event</refentrytitle>
     <manvolnum>3</manvolnum>
-    <refmiscinfo class="manual">libtc documentation</refmiscinfo>
+    <refmiscinfo class="manual">libtcr documentation</refmiscinfo>
   </refmeta>
 
   <refnamediv>

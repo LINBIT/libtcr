@@ -6,7 +6,7 @@
   <refmeta>
     <refentrytitle>tc_run</refentrytitle>
     <manvolnum>3</manvolnum>
-    <refmiscinfo class="manual">libtc documentation</refmiscinfo>
+    <refmiscinfo class="manual">libtcr documentation</refmiscinfo>
   </refmeta>
 
   <refnamediv>
@@ -17,7 +17,7 @@
     <refname>tc_set_diagnostic_fn</refname>
     <refname>tc_set_stack_size</refname>
 
-    <refpurpose>libtc initialization</refpurpose>
+    <refpurpose>libtcr initialization</refpurpose>
   </refnamediv>
 
   <refsynopsisdiv>

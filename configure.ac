@@ -1,6 +1,6 @@
 dnl To produce configure script and config.h.in run autoconf *and* autoheader.
-AC_INIT([tc],[0.99],[philipp.reisner@linbit.com])
-AC_CONFIG_HEADERS(tc/config.h:tc/config.in)
+AC_INIT([libtcr],[0.99],[philipp.reisner@linbit.com])
+AC_CONFIG_HEADERS(tcr/config.h:tcr/config.in)
 AC_PROG_CC
 
 CFLAGS="-Wall -O3"
@@ -31,6 +31,6 @@ AC_ARG_ENABLE([wait-debug],
 )
 AC_OUTPUT([
 tests/Makefile
-tc/Makefile
+tcr/Makefile
 Makefile
 ])

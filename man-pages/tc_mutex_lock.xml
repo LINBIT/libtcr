@@ -6,7 +6,7 @@
   <refmeta>
     <refentrytitle>tc_mutex_lock</refentrytitle>
     <manvolnum>3</manvolnum>
-    <refmiscinfo class="manual">libtc documentation</refmiscinfo>
+    <refmiscinfo class="manual">libtcr documentation</refmiscinfo>
   </refmeta>
 
   <refnamediv>
@@ -16,7 +16,7 @@
     <refname>tc_mutex_destroy</refname>
     <refname>tc_mutex_trylock</refname>
 
-    <refpurpose>libtc mutex functions</refpurpose>
+    <refpurpose>libtcr mutex functions</refpurpose>
   </refnamediv>
 
   <refsynopsisdiv>

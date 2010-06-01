@@ -6,7 +6,7 @@
   <refmeta>
     <refentrytitle>tc_parallel_for</refentrytitle>
     <manvolnum>3</manvolnum>
-    <refmiscinfo class="manual">libtc documentation</refmiscinfo>
+    <refmiscinfo class="manual">libtcr documentation</refmiscinfo>
   </refmeta>
 
   <refnamediv>
@@ -15,7 +15,7 @@
     <refname>tc_with</refname>
     <refname>tc_parallel_end</refname>
 
-    <refpurpose>libtc convenience macros for parallel computation</refpurpose>
+    <refpurpose>libtcr convenience macros for parallel computation</refpurpose>
   </refnamediv>
 
   <refsynopsisdiv>

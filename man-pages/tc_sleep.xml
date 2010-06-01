@@ -6,7 +6,7 @@
   <refmeta>
     <refentrytitle>tc_sleep</refentrytitle>
     <manvolnum>3</manvolnum>
-    <refmiscinfo class="manual">libtc documentation</refmiscinfo>
+    <refmiscinfo class="manual">libtcr documentation</refmiscinfo>
   </refmeta>
 
   <refnamediv>
@@ -45,7 +45,7 @@
     </para>
     <para>
       This function is provided for sake of completeness. The use of this function is 
-      usually not required, since libtc is designed to work with multiple system level
+      usually not required, since libtcr is designed to work with multiple system level
       worker threads.
     </para>
   </refsection>
