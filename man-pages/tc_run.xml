@@ -46,7 +46,7 @@
 
     <para>The most convenient way of using the tc-library is to call 
       <option>tc_run()</option>. Alternatively call <option>tc_init()</option>
-      once, create you thread pool, call <option>tc_worker_init()</option> and 
+      once, create your thread pool, call <option>tc_worker_init()</option> and 
       <option>tc_scheduler()</option> in each thread of the pool.
     </para>
     <para>

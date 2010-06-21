@@ -52,8 +52,8 @@
       <option>tc_waitq_unregister()</option>.
     </para>
     <para>
-      When one tc_thread potentially changes some state, so that a waiting for condition
-      might become true for an other thread it can trigger re-evaluation of the waiting
+      When one tc_thread potentially changes some state that might be of interest to
+      another threads it can trigger re-evaluation of the waiting
       condition in other threads by calls to <option>tc_waitq_wakeup_all()</option> or
       <option>tc_waitq_wakeup_one()</option>. The former wakes all tc_threads sleeping
       on that tc_waitq, while the latter wakes only one.

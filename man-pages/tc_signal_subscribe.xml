@@ -53,7 +53,7 @@
       before it gets delivered, gets delivered only once.
     </para>
     <para>
-      Before a <option>tc_signals</option> may be used, it has to be initialized with a call
+      Before a <option>tc_signal</option> may be used, it has to be initialized with a call
       to <option>tc_signal_init()</option>. It may not be used after a call to its destructor
       <option>tc_signal_destroy()</option>.
     </para>
@@ -70,7 +70,7 @@
     </para>
     <para>
       <option>tc_signal_unsubscribe()</option> disables interruption of sleeping
-      libtcr calls by the passed signal, and subscription object. Note: You have to unsubscribe
+      libtcr calls by the passed signal and subscription object. Note: You have to unsubscribe
       all tc_signals before calling <citerefentry><refentrytitle>tc_die</refentrytitle>
 	<manvolnum>3</manvolnum></citerefentry> or returning from the top most function
       of a tc_thread.

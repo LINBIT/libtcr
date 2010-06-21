@@ -38,11 +38,11 @@
       body in parallel. 
     </para>
     <para>
-      It has a few limitations that must be kept in mind
+      It has a few limitations that must be kept in mind:
       <itemizedlist>
 	<listitem>
 	  <para>
-	    Each execution thread of the statement's body has in independent
+	    Each execution thread of the statement's body has an independent
             instance of the counter variable. Modifying it in the body has
 	    no effect on the other iterations.
 	  </para>

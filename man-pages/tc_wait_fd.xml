@@ -56,7 +56,7 @@
     <para>
       <option>tc_unregister_fd()</option> removes a file descriptor from the library's
       data structures and the epoll-fd. Note: This call needs to make sure that all
-      system level threads see that change in an consistent manner, i.e. it synchronizes
+      system level threads see that change in a consistent manner, i.e. it synchronizes
       all system level threads.
     </para>
     <para>
@@ -81,11 +81,11 @@
     </para>
     <para>
       <option>tc_rearm()</option> rearms the events on the file
-      description. If a threads that waited in <option>tc_wait_fd()</option>
-      got woken up, and finished with read/write operations on the file
-      descriptor, with calling <option>tc_rearm()</option> it causes an
-      other tc_thread waiting for that file descriptor to become ready to
-      return from <option>tc_wait_fd()</option>.
+      descriptor. When a thread (after having waited in <option>tc_wait_fd()</option> itself)
+      got woken up and finished its read/write operations on the file
+      descriptor calls <option>tc_rearm()</option>, the file descriptor gets 
+      released to another thread thats waiting in <option>tc_rearm()</option>; 
+      this way the "ownership" of file descriptors can be transferred.
     </para>
 
   </refsection>
