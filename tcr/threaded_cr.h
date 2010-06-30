@@ -50,7 +50,7 @@ struct event {
 	struct tc_thread *tc;
 	union {
 		__uint32_t ep_events; /* EPOLLIN, EPOLLOUT, ... */
-		struct tc_fd *tcfd;   /* when it is attaache to an tc_thread */
+		struct tc_fd *tcfd;   /* when it is attached to an tc_thread */
 		struct tc_signal *signal;
 	};
 	enum tc_event_flag flags;

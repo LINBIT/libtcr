@@ -52,8 +52,8 @@ enum thread_flags {
 
 struct tc_thread {
 	char *name;		/* Leave that first, for debugging spinlocks */
-	LIST_ENTRY(tc_thread) tc_chain;      /* list of all threads*/
-	LIST_ENTRY(tc_thread) threads_chain; /* list of thrads created with one call to tc_thread_pool_new() */
+	LIST_ENTRY(tc_thread) tc_chain;      /* list of all threads */
+	LIST_ENTRY(tc_thread) threads_chain; /* list of threads created with one call to tc_thread_pool_new() */
 	struct coroutine *cr;
 	struct tc_waitq exit_waiters;
 	atomic_t refcnt;
