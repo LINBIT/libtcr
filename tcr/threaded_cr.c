@@ -966,7 +966,11 @@ enum tc_rv tc_mutex_lock(struct tc_mutex *m)
 	tc_waitq_prepare_to_wait(&m->wq, &e);
 	if (atomic_add_return(1, &m->count) > 1) {
 		tc_scheduler();
-		return tc_waitq_finish_wait(&m->wq, &e) ? RV_INTR : RV_OK;
+		if (tc_waitq_finish_wait(&m->wq, &e)) {
+			atomic_dec(&m->count);
+			return RV_INTR;
+		} else
+			return RV_OK;
 	} else {
 		tc_waitq_finish_wait(&m->wq, &e);
 		return RV_OK;
