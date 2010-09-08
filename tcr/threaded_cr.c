@@ -1099,7 +1099,7 @@ void tc_waitq_wakeup_one(struct tc_waitq *wq)
 	spin_lock(&sched.immediate.lock);
 	spin_lock(&wq->waiters.lock);
 	if (!CIRCLEQ_EMPTY(&wq->waiters.events)) {
-		e = CIRCLEQ_LAST(&wq->waiters.events);
+		e = CIRCLEQ_FIRST(&wq->waiters.events);
 		CIRCLEQ_REMOVE(&wq->waiters.events, e, e_chain);
 		e->el = &sched.immediate;
 		CIRCLEQ_INSERT_HEAD(&sched.immediate.events, e, e_chain);
