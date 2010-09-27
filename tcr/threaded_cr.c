@@ -95,6 +95,7 @@ struct scheduler {
 	atomic_t sleeping_workers;
 	diagnostic_fn diagnostic;
 	int stack_size;            /* stack size for new tc_threads */
+	cpu_set_t available_cpus;    /* CPUs to use for the worker threads */
 };
 
 #ifdef WAIT_DEBUG
@@ -564,15 +565,27 @@ static void scheduler_part2()
 
 void tc_worker_init(int i)
 {
-	cpu_set_t cpus;
-	int rv = 0;
+	cpu_set_t cpu_mask;
+	int cpus_seen = 0, ci, my_cpu, rv = 0;
 
 	cr_init();
 
-	CPU_ZERO(&cpus);
-	CPU_SET(i, &cpus);
+	my_cpu = i % CPU_COUNT(&sched.available_cpus);
+	CPU_ZERO(&cpu_mask);
 
-	if (sched_setaffinity(getpid(), sizeof(cpus), &cpus))
+	for (ci = 0; ci < CPU_SETSIZE; ci++) {
+		if (CPU_ISSET(ci, &sched.available_cpus)) {
+			if (cpus_seen == my_cpu) {
+				CPU_SET(ci, &cpu_mask);
+				goto found_cpu;
+			}
+			cpus_seen++;
+		}
+	}
+	msg_exit(1, "could not find my CPU\n", i);
+
+found_cpu:
+	if (pthread_setaffinity_np(pthread_self(), sizeof(cpu_mask), &cpu_mask))
 		msg_exit(1, "sched_setaffinity(%d): %m\n", i);
 
 	worker.nr = i;
@@ -633,6 +646,9 @@ void tc_init()
 	sched.immediate_fd = eventfd(0, 0);
 	if (sched.immediate_fd == -1)
 		msg_exit(1, "eventfd() failed with: %m\n");
+
+	if (sched_getaffinity(0, sizeof(sched.available_cpus), &sched.available_cpus))
+		msg_exit(1, "sched_getaffinity: %m\n");
 
 	arm_immediate(EPOLL_CTL_ADD);
 }
