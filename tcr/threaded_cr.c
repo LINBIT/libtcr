@@ -1249,8 +1249,10 @@ enum tc_rv tc_sleep(int clockid, time_t sec, long nsec)
 		msg_exit(1, "timerfd_create with %m\n");
 
 	_tc_fd_init(&tcfd, fd);
-	timerfd_settime(fd, 0, &ts, NULL);
-	rv = tc_wait_fd(EPOLLIN, &tcfd);
+	if (timerfd_settime(fd, 0, &ts, NULL))
+		rv = RV_FAILED;
+	else
+		rv = tc_wait_fd(EPOLLIN, &tcfd);
 	_tc_fd_unregister(&tcfd, rv == RV_INTR);
 	close(tcfd.fd);
 	return rv;
