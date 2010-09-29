@@ -35,6 +35,7 @@
 #include "spinlock.h"
 #include "coroutines.h"
 #include "threaded_cr.h"
+#include "clist.h"
 
 #define DEFAULT_STACK_SIZE (1024 * 16)
 
@@ -74,6 +75,7 @@ struct worker_struct {
 	struct tc_thread sched_p2;
 	struct event *woken_by_event; /* always set after tc_scheduler()   */
 	struct tc_fd *woken_by_tcfd;  /* might be set after tc_scheduler() */
+	struct clist_entry sleeping_chain;
 };
 
 enum inter_worker_interrupts {
@@ -90,9 +92,11 @@ struct scheduler {
 	int sync_fd;               /* IWI event fd to synchronize all workers */
 	int immediate_fd;          /* IWI immediate */
 	atomic_t sync_cnt;
-	pthread_barrier_t *volatile sync_b;
+	pthread_barrier_t sync_b;
 	spinlock_t sync_lock;
-	atomic_t sleeping_workers;
+	atomic_t nr_sleeping_workers;
+	struct clist_entry sleeping_workers;
+	struct clist_entry sync_workers;
 	diagnostic_fn diagnostic;
 	int stack_size;            /* stack size for new tc_threads */
 	cpu_set_t available_cpus;    /* CPUs to use for the worker threads */
@@ -114,7 +118,8 @@ __thread int _caller_line = 0;
 
 static void _signal_gets_delivered(struct event *e);
 static void signal_cancel_pending();
-static void _synchronize_world();
+static void worker_prepare_sleep();
+static void worker_after_sleep();
 static void synchronize_world();
 static void iwi_immediate();
 static int fprintf_stderr(const char *fmt, va_list ap);
@@ -441,7 +446,7 @@ static void iwi_immediate()
 {
 	/* Some other worker should please process the queued immediate events. */
 
-	if (atomic_read(&sched.sleeping_workers))
+	if (atomic_read(&sched.nr_sleeping_workers))
 		_iwi_immediate();
 }
 
@@ -501,20 +506,22 @@ static void scheduler_part2()
 	while(1) {
 		run_immediate();
 
-		atomic_inc(&sched.sleeping_workers);
+		worker_prepare_sleep();
+		atomic_inc(&sched.nr_sleeping_workers);
 		do {
 			er = epoll_wait(sched.efd, &epe, 1, -1);
 		} while (er < 0 && errno == EINTR);
-		atomic_dec(&sched.sleeping_workers);
+		atomic_dec(&sched.nr_sleeping_workers);
 
 		if (er < 0)
 			msg_exit(1, "epoll_wait() failed with: %m\n");
 
 		switch (epe.data.u32) {
 		case IWI_SYNC:
-			_synchronize_world();
+			worker_after_sleep();
 			continue;
 		case IWI_IMMEDIATE:
+			worker_after_sleep();
 			rearm_immediate();
 			/* run_immediate(); at top of loop. */
 			continue;
@@ -549,6 +556,7 @@ static void scheduler_part2()
 			}
 
 			spin_unlock(&tcfd->events.lock);
+			worker_after_sleep();
 			continue;
 		}
 
@@ -557,6 +565,7 @@ static void scheduler_part2()
 		tc = run_or_queue(e);
 
 		spin_unlock(&tcfd->events.lock);
+		worker_after_sleep();
 
 		if (tc)
 			switch_to(tc);
@@ -627,8 +636,8 @@ void tc_init()
 
 	spin_lock_init(&sched.sync_lock);
 	atomic_set(&sched.sync_cnt, 0);
-	atomic_set(&sched.sleeping_workers, 0);
-	sched.sync_b = NULL;
+	atomic_set(&sched.nr_sleeping_workers, 0);
+	CLIST_INIT(&sched.sleeping_workers);
 	sched.sync_fd = eventfd(0, 0);
 	if (sched.sync_fd == -1)
 		msg_exit(1, "eventfd() failed with: %m\n");
@@ -918,25 +927,26 @@ void tc_unregister_fd(struct tc_fd *tcfd)
 	free(tcfd);
 }
 
-static void _synchronize_world()
+static void worker_prepare_sleep()
 {
-	pthread_barrier_t *b;
-	eventfd_t c;
+	spin_lock(&sched.sync_lock);
+	CLIST_INSERT_AFTER(&sched.sleeping_workers, &worker.sleeping_chain);
+	spin_unlock(&sched.sync_lock);
+}
 
-	/* We might need to wait until the first caller of synchronize_world() finished the malloc. */
-	do b = sched.sync_b; while (b == NULL);
+static void worker_after_sleep()
+{
+	struct clist_entry *list;
+	int was_last;
 
-	if (atomic_sub_return(1, &sched.sync_cnt) == 0) {
-		if (read(sched.sync_fd, &c, sizeof(c)) != sizeof(c))
-			msg_exit(1, "read() failed with %m");
-		sched.sync_b = NULL;
-		spin_unlock(&sched.sync_lock);
-	}
+	spin_lock(&sched.sync_lock);
+	list = worker.sleeping_chain.cl_next;
+	CLIST_REMOVE(&worker.sleeping_chain);
+	was_last = CLIST_EMPTY(list);
+	spin_unlock(&sched.sync_lock);
 
-	if (pthread_barrier_wait(b) == PTHREAD_BARRIER_SERIAL_THREAD) {
-		pthread_barrier_destroy(b);
-		free(b);
-	}
+	if (was_last && list == &sched.sync_workers)
+		pthread_barrier_wait(&sched.sync_b);
 }
 
 static void synchronize_world()
@@ -944,26 +954,27 @@ static void synchronize_world()
 	/* When removing a FD that might fire it is essential to make sure
 	   that we do not get any events of that FD in, after this point,
 	   since we want to delete the data structure describing that FD */
-
 	eventfd_t c = 1;
+	int wait = 0;
 
-	if (atomic_set_if_eq(sched.nr_of_workers, 0, &sched.sync_cnt)) {
-		pthread_barrier_t *b;
-
-		spin_lock(&sched.sync_lock);
-		b = malloc(sizeof(pthread_barrier_t));
-		if (b == NULL)
-			msg_exit(1, "failed to malloc() a pthread_barrier_t");
-
-		pthread_barrier_init(b, NULL, sched.nr_of_workers);
-
-		sched.sync_b = b;
-
-		if (write(sched.sync_fd, &c, sizeof(c)) != sizeof(c))
-			msg_exit(1, "write() failed with: %m\n");
+	spin_lock(&sched.sync_lock);
+	if (!CLIST_EMPTY(&sched.sleeping_workers)) {
+		/* Move all list entries from sleeping_workers to sync_workers */
+		CLIST_INSERT_AFTER(&sched.sleeping_workers, &sched.sync_workers);
+		CLIST_REMOVE(&sched.sleeping_workers);
+		CLIST_INIT(&sched.sleeping_workers);
+		pthread_barrier_init(&sched.sync_b, NULL, 2);
+		wait = 1;
 	}
+	spin_unlock(&sched.sync_lock);
 
-	_synchronize_world();
+	if (wait) {
+		if (write(sched.sync_fd, &c, sizeof(c)) != sizeof(c))
+                        msg_exit(1, "write() failed with: %m\n");
+
+		pthread_barrier_wait(&sched.sync_b);
+		pthread_barrier_destroy(&sched.sync_b);
+	}
 }
 
 void tc_mutex_init(struct tc_mutex *m)
