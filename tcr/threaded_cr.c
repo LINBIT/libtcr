@@ -234,7 +234,7 @@ static void _remove_event(struct event *e, struct event_list *el)
 	e->el = NULL;
 }
 
-static void remove_event(struct event *e)
+static struct event_list *remove_event(struct event *e)
 {
 	struct event_list *el;
 
@@ -250,6 +250,7 @@ static void remove_event(struct event *e)
 
 	_remove_event(e, el);
 	spin_unlock(&el->lock);
+	return el;
 }
 
 /* must_hold el->lock */
@@ -1090,13 +1091,38 @@ void tc_waitq_prepare_to_wait(struct tc_waitq *wq, struct event *e)
 
 int tc_waitq_finish_wait(struct tc_waitq *wq, struct event *e)
 {
-	int r = (worker.woken_by_event != e);
+	int interrupted = (worker.woken_by_event != e);
+	struct event_list *el;
 
+	if (interrupted) {
+		el = remove_event(e);
+		if (el != &wq->waiters) {
+			/* We got woken up by an signal, but the event we where waiting
+			   for became ready at the same time.*/
+			struct tc_thread *tc = tc_current();
+
+			if (el != &sched.immediate && el != &tc->pending)
+				msg_exit(1, "Event removed from unknown list\n");
+
+			/* Requeue the signal for later delivery */
+			e = worker.woken_by_event;
+			if (e->flags != EF_SIGNAL)
+				msg_exit(1, "Interrupted by an unexpected event (%d)\n", e->flags);
+
+			el = remove_event(e);
+			if (el != &e->signal->wq.waiters)
+				msg_exit(1, "Signal event on unexpected list\n");
+
+			spin_lock(&tc->pending.lock);
+			_add_event(e, &tc->pending, tc);
+			spin_unlock(&tc->pending.lock);
+
+			interrupted = 0;
+		}
+	}
 	worker.woken_by_event = NULL;
-	if (r)
-		remove_event(e);
 
-	return r;
+	return interrupted;
 }
 
 void tc_waitq_wait(struct tc_waitq *wq)
