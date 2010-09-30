@@ -92,7 +92,8 @@ struct scheduler {
 	int sync_fd;               /* IWI event fd to synchronize all workers */
 	int immediate_fd;          /* IWI immediate */
 	atomic_t sync_cnt;
-	pthread_barrier_t sync_b;
+	pthread_barrier_t sync_barrier;
+	pthread_mutex_t sync_mutex;
 	spinlock_t sync_lock;
 	atomic_t nr_sleeping_workers;
 	struct clist_entry sleeping_workers;
@@ -638,6 +639,7 @@ void tc_init()
 	atomic_set(&sched.sync_cnt, 0);
 	atomic_set(&sched.nr_sleeping_workers, 0);
 	CLIST_INIT(&sched.sleeping_workers);
+	pthread_mutex_init(&sched.sync_mutex, NULL);
 	sched.sync_fd = eventfd(0, 0);
 	if (sched.sync_fd == -1)
 		msg_exit(1, "eventfd() failed with: %m\n");
@@ -946,7 +948,7 @@ static void worker_after_sleep()
 	spin_unlock(&sched.sync_lock);
 
 	if (was_last && list == &sched.sync_workers)
-		pthread_barrier_wait(&sched.sync_b);
+		pthread_barrier_wait(&sched.sync_barrier);
 }
 
 static void synchronize_world()
@@ -957,13 +959,15 @@ static void synchronize_world()
 	eventfd_t c = 1;
 	int wait = 0;
 
+	pthread_mutex_lock(&sched.sync_mutex);
+
 	spin_lock(&sched.sync_lock);
 	if (!CLIST_EMPTY(&sched.sleeping_workers)) {
 		/* Move all list entries from sleeping_workers to sync_workers */
 		CLIST_INSERT_AFTER(&sched.sleeping_workers, &sched.sync_workers);
 		CLIST_REMOVE(&sched.sleeping_workers);
 		CLIST_INIT(&sched.sleeping_workers);
-		pthread_barrier_init(&sched.sync_b, NULL, 2);
+		pthread_barrier_init(&sched.sync_barrier, NULL, 2);
 		wait = 1;
 	}
 	spin_unlock(&sched.sync_lock);
@@ -972,9 +976,11 @@ static void synchronize_world()
 		if (write(sched.sync_fd, &c, sizeof(c)) != sizeof(c))
                         msg_exit(1, "write() failed with: %m\n");
 
-		pthread_barrier_wait(&sched.sync_b);
-		pthread_barrier_destroy(&sched.sync_b);
+		pthread_barrier_wait(&sched.sync_barrier);
+		pthread_barrier_destroy(&sched.sync_barrier);
 	}
+
+	pthread_mutex_unlock(&sched.sync_mutex);
 }
 
 void tc_mutex_init(struct tc_mutex *m)
