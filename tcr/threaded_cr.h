@@ -365,6 +365,11 @@ do {									\
 	(type *)( (char *)__mptr - offsetof(type,member) );})
 
 
+/* This macro retries an operation until it doesn't return RV_INTR; this can be
+ * used to *always* take the lock, ignoring interrupts.
+ */
+#define TC_NO_INTR(stmt) ({ enum tc_rv __rv; while ((__rv = (stmt)) == RV_INTR) ; __rv; })
+
 #ifdef WAIT_DEBUG
 #define tc_sched_yield()	({ SET_CALLER; tc_sched_yield(); UNSET_CALLER; })
 #define tc_wait_fd(E, T)	({ enum tc_rv rv; SET_CALLER; rv = tc_wait_fd(E, T); UNSET_CALLER; rv; })
