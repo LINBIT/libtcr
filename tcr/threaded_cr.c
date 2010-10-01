@@ -1091,7 +1091,7 @@ void tc_waitq_prepare_to_wait(struct tc_waitq *wq, struct event *e)
 
 int tc_waitq_finish_wait(struct tc_waitq *wq, struct event *e)
 {
-	int interrupted = (worker.woken_by_event != e);
+	int interrupted = (worker.woken_by_event && worker.woken_by_event != e);
 	struct event_list *el;
 
 	if (interrupted) {
