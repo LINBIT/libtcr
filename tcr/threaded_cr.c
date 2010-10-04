@@ -941,6 +941,7 @@ static void worker_after_sleep()
 {
 	struct clist_entry *list;
 	int was_last;
+	eventfd_t c;
 
 	spin_lock(&sched.sync_lock);
 	list = worker.sleeping_chain.cl_next;
@@ -948,8 +949,11 @@ static void worker_after_sleep()
 	was_last = CLIST_EMPTY(list);
 	spin_unlock(&sched.sync_lock);
 
-	if (was_last && list == &sched.sync_workers)
+	if (was_last && list == &sched.sync_workers) {
+		if (read(sched.sync_fd, &c, sizeof(c)) != sizeof(c))
+			msg_exit(1, "read() failed with %m");
 		pthread_barrier_wait(&sched.sync_barrier);
+	}
 }
 
 static void synchronize_world()
