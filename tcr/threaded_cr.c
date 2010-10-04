@@ -1094,9 +1094,10 @@ int tc_waitq_finish_wait(struct tc_waitq *wq, struct event *e)
 	int interrupted = (worker.woken_by_event && worker.woken_by_event != e);
 	struct event_list *el;
 
-	if (interrupted) {
+	if (worker.woken_by_event != e) {
 		el = remove_event(e);
-		if (el != &wq->waiters) {
+
+		if (el != &wq->waiters && worker.woken_by_event) {
 			/* We got woken up by an signal, but the event we where waiting
 			   for became ready at the same time.*/
 			struct tc_thread *tc = tc_current();
