@@ -420,7 +420,7 @@ static void arm_immediate(int op)
 {
 	struct epoll_event epe;
 
-	epe.data.u32 = IWI_IMMEDIATE;
+	epe.data.ptr = (void*)IWI_IMMEDIATE;
 	epe.events = EPOLLIN | EPOLLONESHOT;
 
 	if (epoll_ctl(sched.efd, op, sched.immediate_fd, &epe))
@@ -595,7 +595,7 @@ static void scheduler_part2()
 		if (er < 0)
 			msg_exit(1, "epoll_wait() failed with: %m\n");
 
-		switch (epe.data.u32) {
+		switch ((long)epe.data.ptr) {
 		case IWI_SYNC:
 			worker_after_sleep();
 			continue;
@@ -725,7 +725,7 @@ void tc_init()
 	if (sched.efd < 0)
 		msg_exit(1, "epoll_create failed with %m\n");
 
-	epe.data.u32 = IWI_SYNC;
+	epe.data.ptr = IWI_SYNC;
 	epe.events = EPOLLIN;
 
 	if (epoll_ctl(sched.efd, EPOLL_CTL_ADD, sched.sync_fd, &epe))
