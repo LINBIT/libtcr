@@ -88,6 +88,12 @@ struct tc_signal {
 	struct tc_signal_subs sss; /* protected by wq.waiters.lock */
 };
 
+struct tc_rw_lock {
+	struct tc_mutex mutex;
+	struct tc_waitq wr_wq;
+	atomic_t readers;
+};
+
 struct tc_thread;
 LIST_HEAD(tc_thread_pool, tc_thread);
 
@@ -370,6 +376,33 @@ do {									\
  */
 #define TC_NO_INTR(stmt) ({ enum tc_rv __rv; while ((__rv = (stmt)) == RV_INTR) ; __rv; })
 
+/* RW-Locks.
+ * We need them to be starvation-free, and mostly fair; so we use waitqueues.
+ * */
+void tc_rw_init(struct tc_rw_lock *l);
+enum tc_rv tc_rw_r_lock(struct tc_rw_lock *l);
+enum tc_rv tc_rw_w_lock(struct tc_rw_lock *l);
+static inline void tc_rw_r_unlock(struct tc_rw_lock *l)
+{
+	if (atomic_dec(&l->readers) == 0)
+		tc_waitq_wakeup_one(&l->wr_wq);
+}
+static inline void tc_rw_w_unlock(struct tc_rw_lock *l)
+{
+	tc_mutex_unlock(&l->mutex);
+}
+static inline void tc_rw_w2r_lock(struct tc_rw_lock *l)
+{
+	/* This order is important. */
+	atomic_inc(&l->readers);
+	tc_mutex_unlock(&l->mutex);
+}
+static inline int tc_rw_get_readers(struct tc_rw_lock *l)
+{
+	return atomic_read(&l->readers);
+}
+
+
 #ifdef WAIT_DEBUG
 #define tc_sched_yield()	({ SET_CALLER; tc_sched_yield(); UNSET_CALLER; })
 #define tc_wait_fd(E, T)	({ enum tc_rv rv; SET_CALLER; rv = tc_wait_fd(E, T); UNSET_CALLER; rv; })
@@ -379,6 +412,9 @@ do {									\
 #define tc_waitq_wait(W)	({ SET_CALLER; tc_waitq_wait(W); UNSET_CALLER; })
 #define tc_thread_pool_wait(P)	({ enum tc_rv rv; SET_CALLER; rv = tc_thread_pool_wait(P); UNSET_CALLER; rv; })
 #define tc_sleep(C, S, N)	({ enum tc_rv rv; SET_CALLER; rv = tc_sleep(C, S, N); UNSET_CALLER; rv; })
+
+#define tc_rw_w_lock(M)	({ enum tc_rv rv; SET_CALLER; rv = tc_rw_w_lock(M); UNSET_CALLER; rv; })
+#define tc_rw_r_lock(M)	({ enum tc_rv rv; SET_CALLER; rv = tc_rw_r_lock(M); UNSET_CALLER; rv; })
 
 /* This is a handy function to be called from within gdb */
 void tc_dump_threads(void);

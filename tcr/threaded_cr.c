@@ -1306,6 +1306,42 @@ enum tc_rv tc_sleep(int clockid, time_t sec, long nsec)
 	return rv;
 }
 
+
+void tc_rw_init(struct tc_rw_lock *l)
+{
+	tc_mutex_init(&l->mutex);
+	atomic_set(&l->readers, 0);
+	tc_waitq_init(&l->wr_wq);
+}
+
+enum tc_rv tc_rw_r_lock(struct tc_rw_lock *l)
+{
+	enum tc_rv rv;
+
+	rv = tc_mutex_lock(&l->mutex);
+	if (rv == RV_OK) {
+		atomic_inc(&l->readers);
+		tc_mutex_unlock(&l->mutex);
+	}
+	return rv;
+}
+
+enum tc_rv tc_rw_w_lock(struct tc_rw_lock *l)
+{
+	enum tc_rv rv;
+
+	rv = tc_mutex_lock(&l->mutex);
+	if (rv == RV_OK) {
+		rv = tc_waitq_wait_event(&l->wr_wq,
+				atomic_read(&l->readers) == 0);
+		/* In case the waiting was interrupted, we have to release the mutex
+		 * - there might still be readers. */
+		if (rv)
+			tc_mutex_unlock(&l->mutex);
+	}
+	return rv;
+}
+
 #ifdef WAIT_DEBUG
 
 /* This is a handy function to be called from within gdb */
