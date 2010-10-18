@@ -228,7 +228,9 @@ static struct event *matching_event(__uint32_t em, struct events *es)
 	}
 
 	if (ew) {
-		move_to_immediate(ew == in ? out : in);
+		e = (ew == in ? out : in);
+		if (e)
+			move_to_immediate(e);
 		return ew;
 	} else {
 		if (in && out) {
