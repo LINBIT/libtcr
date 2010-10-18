@@ -112,6 +112,8 @@ struct scheduler {
 #undef tc_waitq_wait
 #undef tc_thread_pool_wait
 #undef tc_sleep
+#undef tc_rw_w_lock
+#undef tc_rw_r_lock
 
 __thread char *_caller_file = "untracked tc_scheduler() call";
 __thread int _caller_line = 0;
