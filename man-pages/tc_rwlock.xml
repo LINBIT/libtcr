@@ -1,0 +1,95 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE refentry PUBLIC "-//OASIS//DTD DocBook XML V4.5//EN"
+"http://www.oasis-open.org/docbook/xml/4.5/docbookx.dtd">
+<refentry>
+  <xi:include href="product.xml" xmlns:xi="http://www.w3.org/2001/XInclude" />
+  <refmeta>
+    <refentrytitle>tc_rwlock</refentrytitle>
+    <manvolnum>3</manvolnum>
+    <refmiscinfo class="manual">libtcr documentation</refmiscinfo>
+  </refmeta>
+
+  <refnamediv>
+    <refname>tc_rw_init</refname>
+    <refname>tc_rw_r_lock</refname>
+    <refname>tc_rw_r_unlock</refname>
+    <refname>tc_rw_w_lock</refname>
+    <refname>tc_rw_w_unlock</refname>
+    <refname>tc_rw_w2r_lock</refname>
+
+    <refpurpose>libtcr starvation-free RW-locks</refpurpose>
+  </refnamediv>
+
+  <refsynopsisdiv>
+    <cmdsynopsis>
+        <command>#include &lt;tc/threaded_cr.h&gt;</command>
+    </cmdsynopsis>
+
+    <cmdsynopsis>
+        <command>void tc_rw_init(struct tc_rwlock *<replaceable>lock</replaceable>);</command>
+    </cmdsynopsis>
+    <cmdsynopsis>
+        <command>enum tc_rv tc_rw_r_lock(struct tc_rwlock *<replaceable>lock</replaceable>);</command>
+    </cmdsynopsis>
+    <cmdsynopsis>
+        <command>void tc_rw_r_unlock(struct tc_rwlock *<replaceable>lock</replaceable>);</command>
+    </cmdsynopsis>
+    <cmdsynopsis>
+        <command>enum tc_rv tc_rw_w_lock(struct tc_rwlock *<replaceable>lock</replaceable>);</command>
+    </cmdsynopsis>
+    <cmdsynopsis>
+        <command>void tc_rw_w_unlock(struct tc_rwlock *<replaceable>lock</replaceable>);</command>
+    </cmdsynopsis>
+    <cmdsynopsis>
+        <command>void tc_rw_w2r_lock(struct tc_rwlock *<replaceable>lock</replaceable>);</command>
+    </cmdsynopsis>
+</refsynopsisdiv>
+
+<refsection>
+    <title>Description</title>
+    <para>
+        A <option>struct tc_rwlock</option> must be initialized by a call to 
+        <option>tc_rw_init()</option> before it can be used.
+    </para>
+    <para>
+        Calling <option>tc_rw_r_lock()</option> gets a (shared) read lock; this 
+        can be held by multiple tc_threads in parallel.
+        If a write lock is currently active, the call blocks until the lock get 
+        unlocked again.
+        The lock must be released after use by a call to <option>tc_rw_r_unlock()</option>.
+    </para>
+    <para>
+        Calling <option>tc_rw_w_lock()</option> gets an exclusive lock.
+        No other reader or writer can be active, until 
+        <option>tc_rw_w_unlock()</option> is used to released the lock again.
+    </para>
+    <para>
+        <option>tc_rw_w2r_lock()</option> changes a <emphasis>held</emphasis> 
+        write-lock into a shared read-lock, and so allows readers waiting for 
+        the lock to continue.
+    </para>
+    <title>Hint</title>
+    <para>
+        The tc_rwlock is a starvation-free lock; as all blocked threads are 
+        held on a waitqueue, readers and writers are guaranteed to be served.
+    </para>
+    <title>Return value</title>
+    <para>
+      <option>tc_rw_r_lock()</option> and <option>tc_rw_w_lock()</option> 
+      return <option>RV_OK</option> upon successful acquisition of the lock and 
+      <option>RV_INTR</option> if the call was interrupted by a tc_signal.
+    </para>
+</refsection>
+<refsection>
+  <title>Author</title>
+  <para>
+    <author>
+      <personname>
+        <firstname>Philipp</firstname>
+        <surname>Marek</surname>
+      </personname>
+      <email>philipp.marek@linbit.com</email>
+    </author>
+  </para>
+</refsection>
+</refentry>
