@@ -186,25 +186,82 @@ static __uint32_t calc_epoll_event_mask(struct events *es)
 }
 
 /* must_hold tcfd->lock */
+static void move_to_immediate(struct event *e)
+{
+	CIRCLEQ_REMOVE(&e->el->events, e, e_chain);
+	e->el = &sched.immediate;
+	spin_lock(&sched.immediate.lock);
+	CIRCLEQ_INSERT_TAIL(&sched.immediate.events, e, e_chain);
+	spin_unlock(&sched.immediate.lock);
+}
+
+/* must_hold tcfd->lock */
 static struct event *matching_event(__uint32_t em, struct events *es)
 {
 	struct event *e;
-	struct event *en = NULL; /* naive match */
-	struct event *ew = NULL; /* match on this worker */
+	struct event *in  = NULL;
+	struct event *out = NULL;
+	struct event *ew  = NULL;  /* match on this worker */
 
-	/* prefer events of threads that prefer this worker */
 	CIRCLEQ_FOREACH(e, es, e_chain) {
-		if (em & e->ep_events) {
-			if (!en)
-				en = e;
-			if (!ew && e->tc->worker_nr == worker.nr)
-				ew = e;
-			if (e->flags == EF_PRIORITY)
-				return e;
+		if (em & e->ep_events & EPOLLIN) {
+			if (!in)
+				in = e;
+			if (e->tc->worker_nr == worker.nr)
+				ew = in = e;
+			if (e->flags == EF_PRIORITY) {
+				em &= ~EPOLLIN;
+				in = e;
+			}
+
+		}
+		if (em & e->ep_events & EPOLLOUT) {
+			if (!out)
+				out = e;
+			if (e->tc->worker_nr == worker.nr)
+				ew = out = e;
+			if (e->flags == EF_PRIORITY) {
+				em &= ~EPOLLOUT;
+				out = e;
+			}
 		}
 	}
 
-	return ew ? ew : en;
+	if (ew) {
+		move_to_immediate(ew == in ? out : in);
+		return ew;
+	} else {
+		if (in && out) {
+			move_to_immediate(in);
+			return out;
+		}
+		return in ? in : out;
+	}
+}
+
+/* must_hold tcfd->lock */
+static struct event *wakeup_all_events(struct events *es)
+{
+	struct event *e;
+	struct event *ex  = NULL;
+	struct event *ew  = NULL;  /* match on this worker */
+
+	CIRCLEQ_FOREACH(e, es, e_chain) {
+		if (e->tc->worker_nr == worker.nr) {
+			ew = e;
+			continue;
+		}
+		if (!ex) {
+			ex = e;
+			continue;
+		}
+		move_to_immediate(e);
+	}
+
+	if (ew && ex)
+		move_to_immediate(ex);
+
+	return ew ? ew : ex;
 }
 
 /* must_hold tcfd->lock */
@@ -537,13 +594,12 @@ static void scheduler_part2()
 		tcfd->ep_events = -1; /* recalc them */
 
 		/* in case of an error condition, wake all waiters on the FD,
-		   no matter what they are waiting for: Setting all bits. */
-		if (epe.events & EPOLLERR || epe.events & EPOLLHUP) {
+		   no matter what they are waiting for */
+		if (epe.events & (EPOLLERR | EPOLLHUP)) {
+			e = wakeup_all_events(&tcfd->events.events);
 			atomic_set(&tcfd->err_hup, 1);
-			epe.events = -1;
-		}
-
-		e = matching_event(epe.events, &tcfd->events.events);
+		} else
+			e = matching_event(epe.events, &tcfd->events.events);
 		if (!e) {
 			/* That can happen if a fd was enabled by a call to tc_wait_fd(),
 			   that was interrupted by a tc_signal later. Then an event on the
