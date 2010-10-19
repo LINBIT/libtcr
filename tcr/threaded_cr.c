@@ -249,7 +249,7 @@ static struct event *wakeup_all_events(struct events *es)
 	struct event *ew  = NULL;  /* match on this worker */
 
 	CIRCLEQ_FOREACH(e, es, e_chain) {
-		if (e->tc->worker_nr == worker.nr) {
+		if (!ew && e->tc->worker_nr == worker.nr) {
 			ew = e;
 			continue;
 		}
