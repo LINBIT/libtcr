@@ -245,10 +245,22 @@ static struct event *matching_event(__uint32_t em, struct events *es)
 static struct event *wakeup_all_events(struct events *es)
 {
 	struct event *e;
+	struct event *next;
 	struct event *ex  = NULL;
 	struct event *ew  = NULL;  /* match on this worker */
 
-	CIRCLEQ_FOREACH(e, es, e_chain) {
+	/* We cannot use
+	 *   CIRCLEQ_FOREACH(e, es, e_chain)
+	 * here, as this macro uses the pointers from the current element (e) to 
+	 * get to the next - but by then the pointers are already changed by 
+	 * move_to_immediate(). */
+	for (e = es->cqh_first;
+		e != (const void *)es;
+		e = next)
+	{
+		/* Remember next element; we don't have the pointer anymore after the 
+		 * move_to_immediate().  */
+		next = e->e_chain.cqe_next;
 		if (!ew && e->tc->worker_nr == worker.nr) {
 			ew = e;
 			continue;
