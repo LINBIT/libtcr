@@ -13,7 +13,7 @@
    GNU General Public License for more details.
 
    You should have received a copy of the GNU General Public License
-   along with drbd; see the file COPYING.  If not, write to
+   along with libtcr; see the file COPYING.  If not, write to
    the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.
  */
 
@@ -730,7 +730,7 @@ static void *worker_pthread(void *arg)
 	tc_worker_init(nr);
 	tc_thread_wait(tc_main); /* calls tc_scheduler() */
 
-	_iwi_immediate(); /* All other workers need to get woken UNCONDITINALLY
+	_iwi_immediate(); /* All other workers need to get woken UNCONDITIONALLY
 			     So that the complete program can terminate */
 	return NULL;
 }

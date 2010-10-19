@@ -13,7 +13,7 @@
    GNU General Public License for more details.
 
    You should have received a copy of the GNU General Public License
-   along with drbd; see the file COPYING.  If not, write to
+   along with libtcr; see the file COPYING.  If not, write to
    the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.
  */
 
@@ -40,7 +40,7 @@ enum tc_event_flag {
 
 enum tc_rv {
 	RV_OK        = 0, /* The event you waited for happened */
-	RV_INTR      = 1, /* A tc_signal, initializied in this co_thread, was fired. */
+	RV_INTR      = 1, /* A tc_signal, initialized in this co_thread, was fired. */
 	RV_THREAD_NA = 2, /* Thread not existing (already exited?) */
 	RV_FAILED    = 3
 };
@@ -243,13 +243,13 @@ do {									\
 
 
 /* The tc_parallel_for(var, init_stmt, condition_stmt, increment_stmt) macro
-   is simmilar to the for(;;) statement of the C language.
+   is similar to the for(;;) statement of the C language.
 
    It executes the iterations of body in parallel.
 
    LIMITATIONS:
 
-      * Each execution thread of the statement's body has in independend
+      * Each execution thread of the statement's body has in independent
         instance of the counter variable. Modifying it in the body has
 	no effect on the other iterations.
 
@@ -326,7 +326,7 @@ do {									\
    will execute the statements in body1 parallel with the statements in
    body2.
 
-   This macto can be used as a sole statement, also the two bodies might
+   This macro can be used as a sole statement, also the two bodies might
    be sole statements.
 
 	tc_parallel
