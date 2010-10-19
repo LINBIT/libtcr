@@ -225,6 +225,8 @@ static struct event *matching_event(__uint32_t em, struct events *es)
 				out = e;
 			}
 		}
+		if (!em) 
+			break;
 	}
 
 	if (ew) {
