@@ -39,6 +39,8 @@
 
 #define DEFAULT_STACK_SIZE (1024 * 16)
 
+#define ANY_WORKER -1
+
 struct tc_signal_sub {
 	LIST_ENTRY(tc_signal_sub) se_chain;
 	struct event event;
@@ -464,7 +466,7 @@ static int _run_immediate(int nr)
 	spin_lock(&sched.immediate.lock);
 	worker.woken_by_tcfd  = NULL;
 	CIRCLEQ_FOREACH(e, &sched.immediate.events, e_chain) {
-		if (nr && e->tc->worker_nr != nr)
+		if (nr != ANY_WORKER && e->tc->worker_nr != nr)
 			continue;
 		_remove_event(e, &sched.immediate);
 		tc = run_or_queue(e);
@@ -497,7 +499,7 @@ static int _run_immediate(int nr)
 
 static void run_immediate()
 {
-	while (_run_immediate(worker.nr) || _run_immediate(0))
+	while (_run_immediate(worker.nr) || _run_immediate(ANY_WORKER))
 		;
 }
 
@@ -867,7 +869,7 @@ static struct tc_thread *_tc_thread_new(void (*func)(void *), void *data, char* 
 	spin_lock_init(&tc->running);
 	tc->flags = 0;
 	event_list_init(&tc->pending);
-	tc->worker_nr = -1;
+	tc->worker_nr = ANY_WORKER;
 
 	spin_lock(&sched.lock);
 	LIST_INSERT_HEAD(&sched.threads, tc, tc_chain);
@@ -906,8 +908,11 @@ void tc_thread_pool_new(struct tc_thread_pool *threads, void (*func)(void *), vo
 		tc = _tc_thread_new(func, data, ename);
 		if (!tc)
 			continue;
-		tc->flags |= TF_THREADS | TF_FREE_NAME | (i < sched.nr_of_workers ? TF_AFFINE : 0);
-		tc->worker_nr = i;
+		tc->flags |= TF_THREADS | TF_FREE_NAME;
+		if (i < sched.nr_of_workers) {
+			tc->worker_nr = i;
+			tc->flags |= TF_AFFINE;
+		}
 		spin_lock(&sched.lock);
 		LIST_INSERT_HEAD(threads, tc, threads_chain);
 		spin_unlock(&sched.lock);
