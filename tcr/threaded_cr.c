@@ -1287,13 +1287,15 @@ struct tc_signal_sub *tc_signal_subscribe(struct tc_signal *s)
 
 	/* printf(" (%d) signal_enabled e=%p for %s\n", worker.nr, e, tc_current()->name); */
 
-	spin_lock(&s->wq.waiters.lock);
-	LIST_INSERT_HEAD(&s->sss, ss, se_chain);
-	spin_unlock(&s->wq.waiters.lock);
-
+	/* First set the whole signal data correctly, then insert into event lists.
+	 * tc gets set by _add_event only. */
 	ss->event.signal = s;
 	ss->event.flags = EF_SIGNAL;
 	_tc_waitq_prepare_to_wait(&s->wq, &ss->event, tc_current());
+
+	spin_lock(&s->wq.waiters.lock);
+	LIST_INSERT_HEAD(&s->sss, ss, se_chain);
+	spin_unlock(&s->wq.waiters.lock);
 
 	return ss;
 }
