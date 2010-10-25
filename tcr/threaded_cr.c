@@ -1316,7 +1316,7 @@ static void _cancel_signal(struct event *e, struct event_list *el)
 	spin_lock(&e->signal->wq.waiters.lock);
 	LIST_REMOVE(ss, se_chain);
 	spin_unlock(&e->signal->wq.waiters.lock);
-	free(e);
+	free(ss);
 }
 
 static void signal_cancel_pending()
