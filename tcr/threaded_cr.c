@@ -1313,7 +1313,7 @@ static void _cancel_signal(struct event *e, struct event_list *el)
 {
 	struct tc_signal_sub *ss;
 
-	_remove_event(e, &sched.immediate);
+	_remove_event(e, el);
 	ss = container_of(e, struct tc_signal_sub, event);
 	spin_lock(&e->signal->wq.waiters.lock);
 	LIST_REMOVE(ss, se_chain);
