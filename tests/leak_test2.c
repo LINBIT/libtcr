@@ -50,16 +50,16 @@ void writer(void *unused)
 void accepter(void *unused)
 {
 	struct tc_thread *the_writer;
-	struct tc_signal_sub *e;
+	struct tc_signal_sub *ss;
 
 	fprintf(stderr, "starting accepter\n");
-	e = tc_signal_subscribe(&the_drbd_signal);
+	ss = tc_signal_subscribe(&the_drbd_signal);
 
 	the_writer = tc_thread_new(writer, NULL, "writer");
 	while (tc_thread_wait(the_writer) == RV_INTR) {
 		fprintf(stderr, "RV_INTR in tc_thread_wait(%p)\n", the_writer);
 	}
-	tc_signal_unsubscribe(&the_drbd_signal, e);
+	tc_signal_unsubscribe(&the_drbd_signal, ss);
 	fprintf(stderr, "ending accepter\n");
 }
 
