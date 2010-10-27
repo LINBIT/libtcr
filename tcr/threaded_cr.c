@@ -1181,7 +1181,7 @@ int tc_waitq_finish_wait(struct tc_waitq *wq, struct event *e)
 		el = remove_event(e);
 
 		if (el != &wq->waiters && worker.woken_by_event) {
-			/* We got woken up by an signal, but the event we where waiting
+			/* We got woken up by an signal, but the event we were waiting
 			   for became ready at the same time.*/
 			struct tc_thread *tc = tc_current();
 
