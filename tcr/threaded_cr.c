@@ -351,8 +351,13 @@ int add_event_fd(struct event *e, __uint32_t ep_events, enum tc_event_flag flags
 	e->el = NULL;
 
 	spin_lock(&tcfd->events.lock);
+	rv = RV_FAILED;
+	if (atomic_read(&tcfd->err_hup))
+		goto unlock;
+
 	_add_event(e, &tcfd->events, tc_current());
 	rv = arm(tcfd);
+unlock:
 	spin_unlock(&tcfd->events.lock);
 	return rv;
 }
@@ -619,8 +624,8 @@ static void scheduler_part2()
 		/* in case of an error condition, wake all waiters on the FD,
 		   no matter what they are waiting for */
 		if (epe.events & (EPOLLERR | EPOLLHUP)) {
-			e = wakeup_all_events(&tcfd->events.events);
 			atomic_set(&tcfd->err_hup, 1);
+			e = wakeup_all_events(&tcfd->events.events);
 		} else
 			e = matching_event(epe.events, &tcfd->events.events);
 		if (!e) {
@@ -810,8 +815,6 @@ enum tc_rv _tc_wait_fd(__uint32_t ep_events, struct tc_fd *tcfd, enum tc_event_f
 	struct event e;
 	int r;
 
-	if (atomic_read(&tcfd->err_hup))
-		return RV_FAILED;
 	if (add_event_fd(&e, ep_events | EPOLLONESHOT, ef, tcfd))
 		return RV_FAILED;
 	tc_scheduler();
@@ -1007,6 +1010,8 @@ static void _tc_fd_unregister(struct tc_fd *tcfd, int sync)
 	struct epoll_event epe = { };
 
 	spin_lock(&tcfd->events.lock);
+	/* Make the fd invalid for further accesses */
+	atomic_set(&tcfd->err_hup, 1);
 	if (!CIRCLEQ_EMPTY(&tcfd->events.events))
 		msg_exit(1, "event list not empty in tc_unregister_fd()\n");
 	spin_unlock(&tcfd->events.lock);
