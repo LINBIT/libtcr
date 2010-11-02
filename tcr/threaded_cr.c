@@ -830,15 +830,15 @@ void tc_die()
 		LIST_REMOVE(tc, threads_chain);
 	spin_unlock(&sched.lock);
 
-	tc_waitq_wakeup_all(&tc->exit_waiters);
-
 	if (atomic_read(&tc->refcnt) > 0) {
 		signal_cancel_pending();
 		if (atomic_read(&tc->refcnt) > 0) {
-			msg_exit(1, "tc_die(%s): refcnt = %d. Signals still enabled?\n",
-				 tc->name, atomic_read(&tc->refcnt));
+			msg_exit(1, "tc_die(%p, %s): refcnt = %d. Signals still enabled?\n",
+					tc, tc->name, atomic_read(&tc->refcnt));
 		}
 	}
+
+	tc_waitq_wakeup_all(&tc->exit_waiters);
 
 	add_event_cr(&tc->e, 0, EF_EXITING, tc);  /* The scheduler will free me */
 	iwi_immediate();
