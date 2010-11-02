@@ -371,6 +371,7 @@ void remove_event_fd(struct event *e, struct tc_fd *tcfd)
 	remove_event(e);
 }
 
+static void _iwi_immediate();
 void tc_thread_free(struct tc_thread *tc)
 {
 	spin_lock(&tc->running); /* Make sure it has reached switch_to(), after posting EF_EXITING */
@@ -380,6 +381,7 @@ void tc_thread_free(struct tc_thread *tc)
 	if (tc->flags & TF_FREE_NAME)
 		free(tc->name);
 	free(tc);
+	_iwi_immediate();
 }
 
 static void _switch_to(struct tc_thread *new)
