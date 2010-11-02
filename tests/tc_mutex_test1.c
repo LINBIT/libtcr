@@ -6,15 +6,17 @@
 static struct tc_mutex m;
 static int in_cr = 0;
 static int worker_no = 0;
+static int cnt[32];
 
 void worker(void *ttf_vp)
 {
 	struct tc_fd *the_tc_fd = (struct tc_fd*) ttf_vp;
-	int this_worker_no = ++worker_no;
+	int this_worker_no = worker_no++;
 	int old_cr;
 
-	fprintf(stdout, "worker %d started.\n", this_worker_no);
+	fprintf(stdout, "worker %d started (%p).\n", this_worker_no, tc_current());
 	while (1) {
+		printf("  worker %d %p: about to lock\n", this_worker_no, tc_current());
 		tc_mutex_lock(&m);
 		old_cr = in_cr;
 		in_cr = 1;
@@ -24,8 +26,13 @@ void worker(void *ttf_vp)
 		}
 		/* usleep(1); */
 		in_cr = 0;
+		printf("  progress on worker %d: %d\n", this_worker_no, cnt[this_worker_no]++);
+		fflush(NULL);
 		tc_mutex_unlock(&m);
-		printf("progress on worker %d\n", this_worker_no);
+		usleep(1);
+#ifdef STOP_WHEN_UNFAIR
+		if (abs(cnt[this_worker_no] - cnt[this_worker_no ^ 1]) > 4) *(int*)2=2;
+#endif
 	}
 }
 

@@ -23,7 +23,7 @@ void drbd_connection(void *unused)
 	int my_thread_no = thread_no++;
 	struct tc_signal_sub *ed, *es;
 
-	fprintf(stderr, "DRBD reader %d started.\n", my_thread_no);
+	fprintf(stderr, "DRBD reader %d started: %p.\n", my_thread_no, tc_current());
 
 	ed = tc_signal_subscribe(&the_drbd_signal);
 	es = tc_signal_subscribe(&the_signal);
@@ -90,6 +90,6 @@ static void starter(void *unused)
 
 int main()
 {
-	tc_run(starter, NULL, "test", 10);
+	tc_run(starter, NULL, "test", sysconf(_SC_NPROCESSORS_ONLN));
 	return 0;
 }
