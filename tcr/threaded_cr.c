@@ -335,6 +335,8 @@ static void _add_event(struct event *e, struct event_list *el, struct tc_thread 
 {
 	atomic_inc(&tc->refcnt);
 	e->tc = tc;
+	if (e->el)
+		msg_exit(1, "Event %p is still on a list (%p)\n", e, e->el);
 	e->el = el;
 
 	CIRCLEQ_INSERT_TAIL(&el->events, e, e_chain);
@@ -343,8 +345,10 @@ static void _add_event(struct event *e, struct event_list *el, struct tc_thread 
 int add_event_fd(struct event *e, __uint32_t ep_events, enum tc_event_flag flags, struct tc_fd *tcfd)
 {
 	int rv;
+
  	e->ep_events = ep_events;
  	e->flags = flags;
+	e->el = NULL;
 
 	spin_lock(&tcfd->events.lock);
 	_add_event(e, &tcfd->events, tc_current());
@@ -534,6 +538,7 @@ void tc_sched_yield()
 	struct tc_thread *tc = tc_current();
 	struct event e;
 
+	e.el = NULL;
 	add_event_cr(&e, 0, EF_READY, tc);
 	tc_scheduler();
 	if (worker.woken_by_event != &e)
@@ -868,6 +873,7 @@ static struct tc_thread *_tc_thread_new(void (*func)(void *), void *data, char* 
 	atomic_set(&tc->refcnt, 0);
 	spin_lock_init(&tc->running);
 	tc->flags = 0;
+	tc->e.el = NULL;
 	event_list_init(&tc->pending);
 	tc->worker_nr = ANY_WORKER;
 
@@ -1080,6 +1086,7 @@ enum tc_rv tc_mutex_lock(struct tc_mutex *m)
 	if (atomic_set_if_eq(1, 0, &m->count))
 		return RV_OK;
 
+	e.el = NULL;
 	tc_waitq_prepare_to_wait(&m->wq, &e);
 	if (atomic_add_return(1, &m->count) > 1) {
 		tc_scheduler();
@@ -1092,6 +1099,11 @@ enum tc_rv tc_mutex_lock(struct tc_mutex *m)
 		tc_waitq_finish_wait(&m->wq, &e);
 		return RV_OK;
 	}
+	/* The event is not usable anymore, as 
+	 * we're leaving the frame.  */
+	if (e.el)
+		remove_event(&e);
+	return RV_OK;
 }
 
 void tc_mutex_unlock(struct tc_mutex *m)
@@ -1135,6 +1147,7 @@ enum tc_rv tc_thread_wait(struct tc_thread *wait_for)
 	struct event e;
 	enum tc_rv rv;
 
+	e.el = NULL;
 	spin_lock(&sched.lock);
 	rv = _thread_valid(wait_for);  /* wait_for might have already exited */
 	if (rv == RV_OK)
@@ -1213,6 +1226,7 @@ void tc_waitq_wait(struct tc_waitq *wq)
 {
 	struct event e;
 
+	e.el = NULL;
 	tc_waitq_prepare_to_wait(wq, &e);
 	tc_scheduler();
 	tc_waitq_finish_wait(wq, &e);
@@ -1291,6 +1305,7 @@ struct tc_signal_sub *tc_signal_subscribe(struct tc_signal *s)
 	 * tc gets set by _add_event only. */
 	ss->event.signal = s;
 	ss->event.flags = EF_SIGNAL;
+	ss->event.el = NULL;
 	_tc_waitq_prepare_to_wait(&s->wq, &ss->event, tc_current());
 
 	spin_lock(&s->wq.waiters.lock);
@@ -1302,10 +1317,10 @@ struct tc_signal_sub *tc_signal_subscribe(struct tc_signal *s)
 
 void tc_signal_unsubscribe(struct tc_signal *s, struct tc_signal_sub *ss)
 {
-	remove_event(&ss->event);
 	spin_lock(&s->wq.waiters.lock);
 	LIST_REMOVE(ss, se_chain);
 	spin_unlock(&s->wq.waiters.lock);
+	remove_event(&ss->event);
 	free(ss);
 }
 

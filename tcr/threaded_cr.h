@@ -216,7 +216,8 @@ extern __thread int _caller_line;
 
 #define __tc_wait_event(wq, cond, rv)					\
 do {									\
-	struct event e;							\
+	struct event e;			                                \
+	e.el = NULL;			                                \
 	while (1) {							\
 		tc_waitq_prepare_to_wait(wq, &e);			\
 		if (cond) {						\
