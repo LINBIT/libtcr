@@ -97,7 +97,6 @@ struct scheduler {
 	pthread_barrier_t sync_barrier;
 	pthread_mutex_t sync_mutex;
 	spinlock_t sync_lock;
-	atomic_t nr_sleeping_workers;
 	struct clist_entry sleeping_workers;
 	struct clist_entry sync_workers;
 	diagnostic_fn diagnostic;
@@ -534,7 +533,7 @@ static void iwi_immediate()
 {
 	/* Some other worker should please process the queued immediate events. */
 
-	if (atomic_read(&sched.nr_sleeping_workers))
+	if (!CLIST_EMPTY(&sched.sleeping_workers))
 		_iwi_immediate();
 }
 
@@ -596,11 +595,9 @@ static void scheduler_part2()
 		run_immediate();
 
 		worker_prepare_sleep();
-		atomic_inc(&sched.nr_sleeping_workers);
 		do {
 			er = epoll_wait(sched.efd, &epe, 1, -1);
 		} while (er < 0 && errno == EINTR);
-		atomic_dec(&sched.nr_sleeping_workers);
 
 		if (er < 0)
 			msg_exit(1, "epoll_wait() failed with: %m\n");
@@ -724,7 +721,6 @@ void tc_init()
 
 	spin_lock_init(&sched.sync_lock);
 	atomic_set(&sched.sync_cnt, 0);
-	atomic_set(&sched.nr_sleeping_workers, 0);
 	CLIST_INIT(&sched.sleeping_workers);
 	pthread_mutex_init(&sched.sync_mutex, NULL);
 	sched.sync_fd = eventfd(0, 0);
