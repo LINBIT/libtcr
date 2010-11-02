@@ -763,17 +763,26 @@ void tc_run(void (*func)(void *), void *data, char* name, int nr_of_workers)
 {
 	pthread_t *threads;
 	int i;
-
-	threads = alloca(sizeof(pthread_t) * nr_of_workers);
-	if (!threads)
-		msg_exit(1, "alloca() in tc_run failed\n");
+	int avail_cpu;
 
 	tc_init();
 	tc_worker_init(0);
 
+	avail_cpu = CPU_COUNT(&sched.available_cpus);
+	if (nr_of_workers == 0)
+		nr_of_workers = avail_cpu;
+	else if (nr_of_workers > avail_cpu)
+		msg("tc_run(): got more workers (%d) than available CPUs (%d)\n",
+				nr_of_workers, avail_cpu);
+
 	sched.nr_of_workers = nr_of_workers;
 
 	tc_main = tc_thread_new(func, data, name);
+
+
+	threads = alloca(sizeof(pthread_t) * nr_of_workers);
+	if (!threads)
+		msg_exit(1, "alloca() in tc_run failed\n");
 
 	threads[0] = pthread_self(); /* actually unused */
 	for (i = 1; i < nr_of_workers; i++)

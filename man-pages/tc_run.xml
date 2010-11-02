@@ -57,6 +57,15 @@
       returns the thread pool of worker threads gets destroyed.
     </para>
     <para>
+        The value of <replaceable>nr_of_workers</replaceable> is a bit 
+        critical; for values bigger than the number of allowed nodes (CPU 
+        cores) some parts of the code might hog CPU. In this case a warning is 
+        printed via the diagnostic function.
+        We recommend to pass zero as <replaceable>nr_of_workers</replaceable>; 
+        then <option>tc_run()</option> will look at the cpu affinity mask of 
+        the process and determine the correct number of threads itself.
+    </para>
+    <para>
       <option>tc_set_diagnostic_fn()</option> can be used to alter the target of the tc-library's
       emergency messages. By default they are written to <option>stderr</option>.
       This function is one of the few functions that might be called before
