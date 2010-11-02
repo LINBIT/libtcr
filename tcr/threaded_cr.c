@@ -42,8 +42,8 @@
 #define ANY_WORKER -1
 
 struct tc_signal_sub {
-	LIST_ENTRY(tc_signal_sub) se_chain;
 	struct event event;
+	LIST_ENTRY(tc_signal_sub) se_chain;
 };
 
 enum thread_flags {
