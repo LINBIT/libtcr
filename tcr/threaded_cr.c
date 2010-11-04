@@ -1208,8 +1208,11 @@ int tc_waitq_finish_wait(struct tc_waitq *wq, struct event *e)
 			   for became ready at the same time.*/
 			struct tc_thread *tc = tc_current();
 
+#if 0
+			el was exit_waiters of another thread,too
 			if (el != &sched.immediate && el != &tc->pending)
 				msg_exit(1, "Event removed from unknown list\n");
+#endif
 
 			/* Requeue the signal for later delivery */
 			e = worker.woken_by_event;
@@ -1217,8 +1220,10 @@ int tc_waitq_finish_wait(struct tc_waitq *wq, struct event *e)
 				msg_exit(1, "Interrupted by an unexpected event (%d)\n", e->flags);
 
 			el = remove_event(e);
+#if 0
 			if (el != &e->signal->wq.waiters)
 				msg_exit(1, "Signal event on unexpected list\n");
+#endif
 
 			spin_lock(&tc->pending.lock);
 			_add_event(e, &tc->pending, tc);
