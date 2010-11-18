@@ -1141,6 +1141,12 @@ void tc_mutex_destroy(struct tc_mutex *m)
 	tc_waitq_unregister(&m->wq);
 }
 
+int tc_mutex_waiters(struct tc_mutex *m)
+{
+	return atomic_read(&m->count)-1;
+}
+
+
 static enum tc_rv _thread_valid(struct tc_thread *look_for)
 {
 	struct tc_thread *tc;
