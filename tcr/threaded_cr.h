@@ -184,11 +184,18 @@ enum tc_rv tc_mutex_trylock(struct tc_mutex *m);
    I.e. you should disable all signals in the exit path, that got enabled
    tc_signal_unsubscribe is idempotent.
 */
+struct tc_signal_sub {
+	struct event event;
+	LIST_ENTRY(tc_signal_sub) se_chain;
+};
 void tc_signal_init(struct tc_signal *s);
 struct tc_signal_sub *tc_signal_subscribe(struct tc_signal *s);
 void tc_signal_unsubscribe(struct tc_signal *s, struct tc_signal_sub *ss);
 void tc_signal_fire(struct tc_signal *s);
 void tc_signal_destroy(struct tc_signal *s);
+/* Functions for stack-allocated tc_signal_sub */
+struct tc_signal_sub *tc_signal_subscribe_exist(struct tc_signal *s, struct tc_signal_sub *ss);
+void tc_signal_unsubscribe_nofree(struct tc_signal *s, struct tc_signal_sub *ss);
 
 /* Waitqueues.*/
 void tc_waitq_init(struct tc_waitq *wq);

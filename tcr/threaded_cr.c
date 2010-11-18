@@ -41,11 +41,6 @@
 
 #define ANY_WORKER -1
 
-struct tc_signal_sub {
-	struct event event;
-	LIST_ENTRY(tc_signal_sub) se_chain;
-};
-
 enum thread_flags {
 	TF_THREADS =   1 << 0, /* is on threads chain*/
 	TF_RUNNING =   1 << 1,
@@ -1312,16 +1307,8 @@ static void _signal_gets_delivered(struct event *e)
 	_tc_waitq_prepare_to_wait(&e->signal->wq, e, e->tc);
 }
 
-struct tc_signal_sub *tc_signal_subscribe(struct tc_signal *s)
+struct tc_signal_sub *tc_signal_subscribe_exist(struct tc_signal *s, struct tc_signal_sub *ss)
 {
-	struct tc_signal_sub *ss;
-
-	ss = malloc(sizeof(struct tc_signal_sub));
-	if (!ss)
-		msg_exit(1, "malloc of tc_signal_sub failed in tc_signal_subscribe\n");
-
-	/* printf(" (%d) signal_enabled e=%p for %s\n", worker.nr, e, tc_current()->name); */
-
 	/* First set the whole signal data correctly, then insert into event lists.
 	 * tc gets set by _add_event only. */
 	ss->event.signal = s;
@@ -1336,12 +1323,29 @@ struct tc_signal_sub *tc_signal_subscribe(struct tc_signal *s)
 	return ss;
 }
 
-void tc_signal_unsubscribe(struct tc_signal *s, struct tc_signal_sub *ss)
+struct tc_signal_sub *tc_signal_subscribe(struct tc_signal *s)
+{
+	struct tc_signal_sub *ss;
+
+	ss = malloc(sizeof(struct tc_signal_sub));
+	if (!ss)
+		msg_exit(1, "malloc of tc_signal_sub failed in tc_signal_subscribe\n");
+
+	return tc_signal_subscribe_exist(s, ss);
+}
+
+
+void tc_signal_unsubscribe_nofree(struct tc_signal *s, struct tc_signal_sub *ss)
 {
 	spin_lock(&s->wq.waiters.lock);
 	LIST_REMOVE(ss, se_chain);
 	spin_unlock(&s->wq.waiters.lock);
 	remove_event(&ss->event);
+}
+
+void tc_signal_unsubscribe(struct tc_signal *s, struct tc_signal_sub *ss)
+{
+	tc_signal_unsubscribe_nofree(s, ss);
 	free(ss);
 }
 
@@ -1376,7 +1380,6 @@ static void signal_cancel_pending()
 	}
 	spin_unlock(&tc->pending.lock);
 }
-
 
 void tc_signal_destroy(struct tc_signal *s)
 {
