@@ -615,6 +615,13 @@ static void scheduler_part2()
 		spin_lock(&tcfd->events.lock);
 		tcfd->ep_events = -1; /* recalc them */
 
+		if (atomic_read(&tcfd->err_hup))
+		{
+			/* Already as invalid marked - should get unregistered soon.
+			 * Just wake up all waiters. */
+			e = wakeup_all_events(&tcfd->events.events);
+		}
+		else
 		/* in case of an error condition, wake all waiters on the FD,
 		   no matter what they are waiting for */
 		if (epe.events & (EPOLLERR | EPOLLHUP)) {
