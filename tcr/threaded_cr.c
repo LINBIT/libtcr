@@ -1009,15 +1009,16 @@ static void _tc_fd_unregister(struct tc_fd *tcfd, int sync)
 {
 	struct epoll_event epe = { };
 
+	/* Make this tcfd not appear again in the epoll_wait loop.
+	 * We're ignoring the return value of epoll_ctl() here on intention. */
+	epoll_ctl(sched.efd, EPOLL_CTL_DEL, tcfd->fd, &epe);
+
 	spin_lock(&tcfd->events.lock);
 	/* Make the fd invalid for further accesses */
 	atomic_set(&tcfd->err_hup, 1);
 	if (!CIRCLEQ_EMPTY(&tcfd->events.events))
 		msg_exit(1, "event list not empty in tc_unregister_fd()\n");
 	spin_unlock(&tcfd->events.lock);
-
-	/* ignoring return value of epoll_ctl() here on intention */
-	epoll_ctl(sched.efd, EPOLL_CTL_DEL, tcfd->fd, &epe);
 
 	if (sync)
 		synchronize_world();
