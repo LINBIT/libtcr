@@ -68,11 +68,14 @@ static void starter(void *unused)
 {
 	struct tc_thread_pool threads;
 	struct tc_thread *the_accepter;
+	int i;
 
 	tc_signal_init(&the_drbd_signal);
 	tc_signal_init(&the_signal);
 
-	while (1) {
+
+	for(i=0; i<3000; i++)
+	{
 		the_accepter = tc_thread_new(accepter, NULL, "accepter");
 		tc_thread_pool_new(&threads, drbd_connection, NULL, "DRBD conn %d", 0);
 		fprintf(stderr, "into tc_thread_pool_wait\n");

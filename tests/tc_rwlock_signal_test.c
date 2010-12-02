@@ -16,7 +16,8 @@ void sig(int s)
 	printf("signal caught\n");
 	tc_signal_fire(&the_drbd_signal);
 	c++;
-	if (c> 10) kill(getpid(), SIGKILL);
+	if (c> 10) exit(0);
+	if (c> 14) kill(getpid(), SIGKILL);
 }
 
 void worker(void *ttf_vp)

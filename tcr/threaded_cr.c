@@ -74,6 +74,8 @@ struct worker_struct {
 	struct event *woken_by_event; /* always set after tc_scheduler()   */
 	struct tc_fd *woken_by_tcfd;  /* might be set after tc_scheduler() */
 	struct clist_entry sleeping_chain;
+	int is_on_sleeping_list:1;
+	int must_sync:1;
 };
 
 enum inter_worker_interrupts {
@@ -89,12 +91,9 @@ struct scheduler {
 	int efd;                   /* epoll fd */
 	int sync_fd;               /* IWI event fd to synchronize all workers */
 	int immediate_fd;          /* IWI immediate */
-	atomic_t sync_cnt;
-	pthread_barrier_t sync_barrier;
-	pthread_mutex_t sync_mutex;
 	spinlock_t sync_lock;
+	atomic_t sync_barrier;
 	struct clist_entry sleeping_workers;
-	struct clist_entry sync_workers;
 	diagnostic_fn diagnostic;
 	int stack_size;            /* stack size for new tc_threads */
 	cpu_set_t available_cpus;    /* CPUs to use for the worker threads */
@@ -754,6 +753,8 @@ found_cpu:
 	worker.sched_p2.flags = 0;
 	event_list_init(&worker.sched_p2.pending);
 	worker.sched_p2.worker_nr = i;
+	worker.must_sync = 0;
+	worker.is_on_sleeping_list = 0;
 }
 
 void tc_init()
@@ -765,9 +766,8 @@ void tc_init()
 	spin_lock_init(&sched.lock);
 
 	spin_lock_init(&sched.sync_lock);
-	atomic_set(&sched.sync_cnt, 0);
+	atomic_set(&sched.sync_barrier, 0);
 	CLIST_INIT(&sched.sleeping_workers);
-	pthread_mutex_init(&sched.sync_mutex, NULL);
 	sched.sync_fd = eventfd(0, 0);
 	if (sched.sync_fd == -1)
 		msg_exit(1, "eventfd() failed with: %m\n");
@@ -1075,59 +1075,110 @@ void tc_unregister_fd(struct tc_fd *tcfd)
 static void worker_prepare_sleep()
 {
 	spin_lock(&sched.sync_lock);
-	CLIST_INSERT_AFTER(&sched.sleeping_workers, &worker.sleeping_chain);
+	if (!worker.is_on_sleeping_list) {
+		CLIST_INSERT_AFTER(&sched.sleeping_workers, &worker.sleeping_chain);
+	}
+	worker.is_on_sleeping_list = 1;
 	spin_unlock(&sched.sync_lock);
 }
 
 static void worker_after_sleep()
 {
-	struct clist_entry *list;
-	int was_last;
-	eventfd_t c;
-
+	/* These two checks have to made atomically w.r.t. sync_lock. */
 	spin_lock(&sched.sync_lock);
-	list = worker.sleeping_chain.cl_next;
-	CLIST_REMOVE(&worker.sleeping_chain);
-	was_last = CLIST_EMPTY(list);
-	spin_unlock(&sched.sync_lock);
-
-	if (was_last && list == &sched.sync_workers) {
-		if (read(sched.sync_fd, &c, sizeof(c)) != sizeof(c))
-			msg_exit(1, "read() failed with %m");
-		pthread_barrier_wait(&sched.sync_barrier);
+	if (worker.must_sync) {
+		worker.must_sync = 0;
+		atomic_dec(&sched.sync_barrier);
 	}
+	if (worker.is_on_sleeping_list)
+	{
+		CLIST_REMOVE(&worker.sleeping_chain);
+		worker.is_on_sleeping_list = 0;
+	}
+	spin_unlock(&sched.sync_lock);
 }
 
+/* When removing a FD that might fire it is essential to make sure
+ * that we do not get any events of that FD in, after this point,
+ * since we want to delete the data structure describing that FD.
+ *
+ * _tc_fd_unregister() and add_event_fd() make sure that no events are defined 
+ * for this fd, and that no new events can be registered anymore. So all 
+ * tc_threads that are currently busy cannot make use of it anymore, and are 
+ * therefore safe.
+ * (If they still access the tcfd, racing with it's destruction by 
+ * tc_unregister_fd(), it's their fault.)
+ *
+ * Only the currently sleeping threads have to be told that this tcfd is no 
+ * longer valid. We try to wake up all of them at once (via an IWI_SYNC event), 
+ * and wait for their ACK.
+ *
+ * Multiple synchronize_world() calls can be made simultaneously; then the new 
+ * sleepers are just added to the wait count (sched.sync_barrier) and are 
+ * waited for.
+ */
 static void synchronize_world()
 {
-	/* When removing a FD that might fire it is essential to make sure
-	   that we do not get any events of that FD in, after this point,
-	   since we want to delete the data structure describing that FD */
+	struct clist_entry to_sync, *list;
+	struct worker_struct *w;
 	eventfd_t c = 1;
-	int wait = 0;
-
-	pthread_mutex_lock(&sched.sync_mutex);
 
 	spin_lock(&sched.sync_lock);
-	if (!CLIST_EMPTY(&sched.sleeping_workers)) {
-		/* Move all list entries from sleeping_workers to sync_workers */
-		CLIST_INSERT_AFTER(&sched.sleeping_workers, &sched.sync_workers);
+	if (CLIST_EMPTY(&sched.sleeping_workers)) {
+		/* No new sleepers. */
+	}
+	else {
+		/* Move all list entries from sleeping_workers to to_sync */
+		CLIST_INIT(&to_sync);
+		CLIST_INSERT_AFTER(&sched.sleeping_workers, &to_sync);
+		/* Remove sched struct from the list */
 		CLIST_REMOVE(&sched.sleeping_workers);
+		/* Prepare a fresh list */
 		CLIST_INIT(&sched.sleeping_workers);
-		pthread_barrier_init(&sched.sync_barrier, NULL, 2);
-		wait = 1;
+		/* Now all these workers are belong to us */
+
+
+		/* Now process the client-list. */
+		list = to_sync.cl_next;
+		while (list != &to_sync) {
+			w = container_of(list, struct worker_struct, sleeping_chain);
+			/* When a synchronize_world() is run while a thread waits for the lock 
+			 * in worker_prepare_sleep(), then the worker would be on the 
+			 * sleeping_workers list again.
+			 * If the next function is a synchronize_world() again (likely in 
+			 * leak_test2), then this would try to get the thread again ... */
+			if (!w->must_sync)
+			{
+				w->must_sync = 1;
+				atomic_inc(&sched.sync_barrier);
+				w->is_on_sleeping_list = 0;
+			}
+			/* We get them out of epoll_wait() by a unix signal - this is 
+			 * worker-specific. */
+			list = list->cl_next;
+		}
 	}
 	spin_unlock(&sched.sync_lock);
 
-	if (wait) {
-		if (write(sched.sync_fd, &c, sizeof(c)) != sizeof(c))
-                        msg_exit(1, "write() failed with: %m\n");
 
-		pthread_barrier_wait(&sched.sync_barrier);
-		pthread_barrier_destroy(&sched.sync_barrier);
+	/* Now preparation finished, wake other threads */
+	if (write(sched.sync_fd, &c, sizeof(c)) != sizeof(c))
+		msg_exit(1, "write() failed with: %m\n");
+
+	/* We use the semaphore to see whether all threads waiting at this barrier 
+	 * have woken up again. */
+	while (atomic_read(&sched.sync_barrier))
+	{
+		sched_yield();
 	}
 
-	pthread_mutex_unlock(&sched.sync_mutex);
+	if (read(sched.sync_fd, &c, sizeof(c)) != sizeof(c))
+		msg_exit(1, "read() failed with %m");
+	c--;
+	if (c) {
+		/* Wake other waiting threads */
+		write(sched.sync_fd, &c, sizeof(c));
+	}
 }
 
 void tc_mutex_init(struct tc_mutex *m)
@@ -1473,6 +1524,8 @@ enum tc_rv tc_sleep(int clockid, time_t sec, long nsec)
 		rv = RV_FAILED;
 	else
 		rv = tc_wait_fd(EPOLLIN, &tcfd);
+	/* If we got interrupted by a signal, another thread might see/use the 
+	 * tc_fd - so we have to clean up. */
 	_tc_fd_unregister(&tcfd, rv == RV_INTR);
 	close(tcfd.fd);
 	return rv;

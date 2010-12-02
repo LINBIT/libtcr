@@ -4,7 +4,6 @@
 #include "tcr/threaded_cr.h"
 
 static struct tc_mutex m;
-static int in_cr = 0;
 static int worker_no = 0;
 
 void worker(void *unused)
@@ -24,8 +23,9 @@ void worker(void *unused)
 void starter(void *unused)
 {
 	struct tc_thread_pool t;
+	int i;
 
-	while (1) {
+	for(i=0; i<10000; i++) {
 		tc_mutex_init(&m);
 		fprintf(stdout, "beginning starter.\n");
 		tc_thread_pool_new(&t, worker, NULL, "worker %d", 0);

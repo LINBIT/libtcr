@@ -2,10 +2,14 @@ override CFLAGS += @CFLAGS@ -I..
 override LDFLAGS += -L../tcr -ltcr -lpthread
 
 TARGETS := main tc_mutex_test1 tc_mutex_test2 tc_waitq_test tc_waitq_test2
+TARGETS += tc_waitfd-both-dirs tc_waitfd-close tc_wait_fd-roundrobin
 TARGETS += tc_waitq_test3 tc_waitq_test5 leak_test leak_test2 yield_test
 TARGETS += yield_test1 parallel_for unix_signal tc_thread_dump
 TARGETS += pipelined-server tc_rwlock_signal_test rwlock_test tc_sleep_test
-TARGETS += 1tc_2events tc_sleep_test tc_waitfd-both-dirs tc_waitfd-close
+TARGETS += 1tc_2events tc_wait_fd tc_waitfd-both-directions epoll-no-OUT
+TARGETS += spinlock_test
+
+SHELL	:= /bin/bash
 
 all: $(TARGETS)
 
@@ -19,5 +23,74 @@ all: $(TARGETS)
 
 clean:
 	rm -f *.o $(TARGETS)
+clean-tests:
+	rm -f $(addprefix $(RESULT_PATH), $(TESTS_RESULTS))
 
 $(TARGETS): ../tcr/libtcr.a
+
+TESTS_RESULTS	:= 1tc_2events.txt leak_test.txt tc_mutex_test1.txt leak_test2.txt leak_test2.txt parallel_for.txt parallel_for.txt pipelined-server.txt rwlock_test.txt spinlock_test.txt tc_mutex_test2.txt tc_mutex_test3.txt tc_sleep_test.txt tc_thread_dump.txt tc_waitfd-both-dirs.txt tc_waitfd-close.txt tc_wait_fd-roundrobin.txt tc_waitq_test.txt tc_waitq_test2.txt tc_waitq_test3.txt tc_waitq_test5.txt yield_test.txt yield_test1.txt tc_waitfd-both-directions.txt 
+#RESULT_PATH	:= /tmp/
+RESULT_PATH	?= ./
+
+# Non-interactive
+run: 
+	@echo Running tests.
+	$(MAKE) $(addprefix $(RESULT_PATH), $(TESTS_RESULTS))
+	@echo Fin.
+
+rrun: clean-tests run
+
+
+define PRE
+@echo "   $< ..."
+@rm -f $@
+endef
+
+# Only keep a few lines, so that less space is used.
+define POST
+@tail -400 $@.tmp > $@
+@rm $@.tmp
+endef
+
+
+$(RESULT_PATH)%.txt: %
+	$(PRE)
+	@./$< &> $@.tmp
+	$(POST)
+
+# Should just echo with delay
+$(RESULT_PATH)pipelined-server.txt: pipelined-server
+	$(PRE)
+	@perl -e '$$|=1; for(0 .. 100) { print "XXXX-$$$$-$$_\n"; select(undef,undef,undef,0.02); }' | ./$< &> $@.tmp
+	$(POST)
+
+$(RESULT_PATH)tc_thread_dump.txt: tc_thread_dump
+	$(PRE)
+	@(sleep 1 ; echo HA ; sleep 2) | ./$< &> $@.tmp & ( sleep 0.5 ; killall -USR1 $< ; sleep 0.5 ) && wait
+	$(POST)
+
+$(RESULT_PATH)tc_wait_fd-roundrobin.txt: tc_wait_fd-roundrobin
+	$(PRE)
+	@perl -e '$$|=1; for(0 .. 100) { print "$$$$-$$_\n"; select(undef,undef,undef,0.5); } print "q\n";' | ./$< &> $@.tmp
+	$(POST)
+
+$(RESULT_PATH)tc_mutex_test1.txt: tc_mutex_test1
+	$(PRE)
+	@(sleep 0.3 ; echo ) | ./$< &> $@.tmp
+	$(POST)
+
+# doesn't test libTCR
+other-tests:
+	./epoll-no-OUT
+
+
+# Interactive
+int-tests:
+	./tc_rwlock_signal_test
+	./tc_wait_fd
+
+ext-assistance:
+	perl -e '$$|=1; for(0 .. 100) { print "aa-$$$$-$$_\n"; select(undef,undef,undef,0.05); } print "exit\n";' | strace -o /tmp/as -f -tt ./main
+
+# No tests needed:
+# ./unix_signal

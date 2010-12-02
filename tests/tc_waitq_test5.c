@@ -32,7 +32,7 @@ void *sleeping_malloc(size_t bytes, int thread_no)
 		return NULL;
 	}
 
-	fprintf(stderr, "%d: reader: mallocing %d bytes (wq is %p)\n", thread_no, bytes, &memory_wq);
+	fprintf(stderr, "%d: reader: mallocing %zu bytes (wq is %p)\n", thread_no, bytes, &memory_wq);
 	spin_lock(&used_mem_spinlock);
 	used_mem += bytes;
 	spin_unlock(&used_mem_spinlock);
@@ -48,7 +48,7 @@ void awakening_free(void *p, size_t bytes)
 	spin_unlock(&used_mem_spinlock);
 
 	fprintf(stderr, "writer: used_mem: %zd max_mem: %zd\n", used_mem, max_mem);
-	fprintf(stderr, "writer: waking up memory wq (%d bytes) wq is %p\n", bytes, &memory_wq);
+	fprintf(stderr, "writer: waking up memory wq (%zu bytes) wq is %p\n", bytes, &memory_wq);
 	tc_waitq_wakeup(&memory_wq);
 }
 
@@ -61,7 +61,7 @@ int do_write_packets(void)
 	for (count = 0; count < 10; count++) {
 		awakening_free(NULL, 1);
 		fprintf(stderr, "do_write_packets: %d\n", count);
-		tc_sleep(CLOCK_MONOTONIC, 1, 0); // works
+		tc_sleep(CLOCK_MONOTONIC, 0, 30e6); // works
 		// sleep(1); // works not
 	}
 	return 0;
@@ -88,16 +88,20 @@ void drbd_connection(void *unused)
 	void *ignore;
 	static int thread_no = 0;
 	int my_thread_no = thread_no++;
+	static int i=0;
 
 	fprintf(stderr, "DRBD reader %d started.\n", my_thread_no);
 
-	while (1) {
+	while(i<500) {
 		fprintf(stderr, "%d: into sleeping_malloc 1\n", my_thread_no);
 		if ((ignore = sleeping_malloc(1, my_thread_no)) == NULL) {
-			break;
+			exit(1);
 		}
-		fprintf(stderr, "%d: out of sleeping_malloc 1\n", my_thread_no);
+		fprintf(stderr, "%d: out of sleeping_malloc 1; %d\n", my_thread_no, i);
+		i++;
 	}
+
+	exit(0);
 }
 
 

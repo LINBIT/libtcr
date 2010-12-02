@@ -42,13 +42,15 @@ void drbd_connection(void *unused)
 
 static void starter(void *unused)
 {
+	int i;
 	struct tc_thread_pool threads;
 
 	tc_signal_init(&the_drbd_signal);
 	tc_signal_init(&the_signal);
 
-	while (1) {
-	  tc_thread_pool_new(&threads, drbd_connection, NULL, "DRBD conn %d", 0);
+	for(i=0; i<1000; i++)
+	{
+		tc_thread_pool_new(&threads, drbd_connection, NULL, "DRBD conn %d", 0);
 		fprintf(stderr, "into tc_thread_pool_wait\n");
 		tc_thread_pool_wait(&threads);
 		fprintf(stderr, "out of tc_thread_pool_wait\n");
@@ -60,6 +62,6 @@ static void starter(void *unused)
 
 int main()
 {
-	tc_run(starter, NULL, "test", 10);
+	tc_run(starter, NULL, "test", 0);
 	return 0;
 }

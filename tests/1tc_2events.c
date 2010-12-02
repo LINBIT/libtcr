@@ -11,6 +11,12 @@ static struct tc_signal the_drbd_signal;
 struct tc_mutex m;
 atomic_t a_sync;
 
+/* This test makes a victim thread that gets woken up by to simultaneous events
+ * - a signal, and a released lock.
+ * We expect the victim to obtain the lock, and end normally (as the event that
+ * is waited for has precedence over signals).
+ * */
+
 
 void victim(void* a)
 {
@@ -76,7 +82,6 @@ void starter(void *unused)
 	s=tc_thread_new(ts, 0, "signal");
 	l=tc_thread_new(tl, 0, "locker");
 
-	// Making this delay different from the one above lets this test run
 	tc_signal_fire(&the_drbd_signal);
 	printf("fired\n");
 

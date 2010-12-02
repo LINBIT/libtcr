@@ -235,6 +235,9 @@ int main(int argc, char** argv)
 		}
 	}
 
+	printf("=== should print data given from STDIN on STDOUT, \n"
+			"while listening on a unix socket\n");
+
 	tc_run(stdin_reader, NULL, "stdin_reader", nr_worker);
 
 	return 0;

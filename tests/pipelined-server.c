@@ -2,9 +2,11 @@
 #include <sys/queue.h>
 #include <tcr/threaded_cr.h>
 #include <errno.h>
+#include <string.h>
 
 struct req {
-	char data[10];
+	char data[15];
+	char nul;
 	volatile int processed;
 	CIRCLEQ_ENTRY(req) ll;
 };
@@ -45,10 +47,13 @@ static void worker(void *data)
 	struct req *r;
 
 	while (1) {
-		tc_wait_fd(EPOLLIN, tcfd);
-		r = malloc(sizeof(struct req));	     /* begin of READ stage */
-		if (tc_read(tcfd, r->data, 10) < 10)
+		if (tc_wait_fd(EPOLLIN, tcfd))
 			break;
+		r = malloc(sizeof(struct req));	     /* begin of READ stage */
+		if (tc_read(tcfd, r->data, sizeof(r->data)) < sizeof(r->data))
+			break;
+		r->nul = 0;
+
 		r->processed = 0;
 		spin_lock(&sl);
 		CIRCLEQ_INSERT_TAIL(&queue, r, ll);
@@ -89,7 +94,7 @@ static void tc_main(void *arg)
 
 int main(int argc, char** argv)
 {
-
+	alarm(10);
 	tc_run(tc_main, NULL, "tc_main", 2 /* sysconf(_SC_NPROCESSORS_ONLN) */);
 	return 0;
 }

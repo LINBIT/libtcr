@@ -11,8 +11,8 @@ static struct tc_signal the_drbd_signal;
 struct tc_mutex m;
 
 void sig(int s)
-{ 
-	printf("signal caught\n"); fflush(NULL); 
+{
+	printf("signal caught\n"); fflush(NULL);
 	exit(1);
 }
 

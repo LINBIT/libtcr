@@ -6,7 +6,7 @@
 static void starter(void *arg)
 {
 	struct tc_fd *sig_tcfd;
-	int rr, sig_fd = (int)arg;
+	int rr, sig_fd = (long)arg;
 	struct signalfd_siginfo fdsi;
 
 	sig_tcfd = tc_register_fd(sig_fd);
@@ -42,6 +42,6 @@ int main()
 	if (sig_fd == -1)
 		msg_exit(10, "signalfd() failed with %m\n");
 
-	tc_run(starter, (void *)sig_fd, "test", sysconf(_SC_NPROCESSORS_ONLN));
+	tc_run(starter, (void *)(long)sig_fd, "test", sysconf(_SC_NPROCESSORS_ONLN));
 	return 0;
 }

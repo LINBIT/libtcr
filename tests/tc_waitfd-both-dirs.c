@@ -16,13 +16,13 @@
 #include "tcr/threaded_cr.h"
 
 
-/* On socks[0] a thread wants to receive, while another uses the same socket 
+/* On socks[0] a thread wants to receive, while another uses the same socket
  * for sending.
  * The other end gets a sink, and an occasional sender. */
 int socks[2];
 struct tc_fd *tc_fds[2];
 
-#define IF if (0)
+#define IF if (1)
 
 
 void receiver(struct tc_fd *fd)

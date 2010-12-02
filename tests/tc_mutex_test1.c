@@ -1,5 +1,6 @@
 #include <sys/epoll.h>
 #include <unistd.h>
+#include <signal.h>
 
 #include "tcr/threaded_cr.h"
 
@@ -7,6 +8,7 @@ static struct tc_mutex m;
 static int in_cr = 0;
 static int worker_no = 0;
 static int cnt[32];
+
 
 void worker(void *ttf_vp)
 {
@@ -42,15 +44,24 @@ void starter(void *unused)
 	struct tc_fd *the_tc_fd = tc_register_fd(0);
 
 	tc_mutex_init(&m);
+	printf("   mutex-lock el at %p\n", &m.wq.waiters.events);
 	fprintf(stdout, "beginning starter.\n");
 	tc_thread_pool_new(&t, worker, the_tc_fd, "worker", 0);
 	tc_thread_pool_wait(&t);
 	fprintf(stdout, "ending starter.\n");
 }
 
+void sig(int s)
+{
+	printf("\nsignal\n");
+	fflush(NULL);
+	exit(cnt[0] < 50 ? 1 : 0);
+}
 
 int main()
 {
+	signal(SIGALRM, sig);
+	alarm(2);
 	tc_run(starter, NULL, "test", sysconf(_SC_NPROCESSORS_ONLN));
 	sleep(60);
 	return 0;

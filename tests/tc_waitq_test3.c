@@ -4,8 +4,11 @@
 
 #include "tcr/threaded_cr.h"
 
+#define WAITERS 3
+
 static int cond = 0;
 static struct tc_waitq wq;
+int seen[WAITERS] = {0};
 
 pid_t gettid(void)
 {
@@ -14,36 +17,40 @@ pid_t gettid(void)
 
 static void waiter(void *arg)
 {
-	int nr = (int)arg;
-	int seen = 0;
+	int nr = (long)arg;
 
 	while (1) {
-		tc_waitq_wait_event(&wq, cond != seen);
+		tc_waitq_wait_event(&wq, cond != seen[nr]);
 		printf("%d: condition got %d (on %d) \n", nr, cond, gettid());
-		seen = cond;
+		seen[nr] = cond;
 	}
 }
 
 static void starter(void *unused)
 {
+	int i;
 	tc_waitq_init(&wq);
 
-	tc_thread_new(waiter, (void *)1, "waiter1");
-	tc_thread_new(waiter, (void *)2, "waiter2");
-	tc_thread_new(waiter, (void *)3, "waiter3");
+	for(i=0; i<WAITERS; i++)
+		tc_thread_new(waiter, (void *)(long)i, "waiter%d");
 
-	while (1) {
-		tc_sleep(CLOCK_MONOTONIC, 0, 100000000); // 100ms
+	while (cond < 1000) {
+		tc_sleep(CLOCK_MONOTONIC, 0, 20e6); // 20ms
 		//tc_sleep(CLOCK_MONOTONIC, 3, 0);
 		cond++;
 		tc_waitq_wakeup(&wq);
 	}
+
+	tc_sleep(CLOCK_MONOTONIC, 0, 30e6);
+	for(i=0; i<WAITERS; i++)
+		if (seen[i] != cond)
+			exit(1);
+	exit(0);
 }
 
 
 int main()
 {
 	tc_run(starter, NULL, "starter", 4);
-	sleep(60);
 	return 0;
 }
