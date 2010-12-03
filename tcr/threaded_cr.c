@@ -184,9 +184,9 @@ static __uint32_t calc_epoll_event_mask(struct events *es)
 /* must_hold tcfd->lock */
 static void move_to_immediate(struct event *e)
 {
+	spin_lock(&sched.immediate.lock);
 	CIRCLEQ_REMOVE(&e->el->events, e, e_chain);
 	e->el = &sched.immediate;
-	spin_lock(&sched.immediate.lock);
 	CIRCLEQ_INSERT_TAIL(&sched.immediate.events, e, e_chain);
 	spin_unlock(&sched.immediate.lock);
 }
@@ -468,7 +468,9 @@ static int _run_immediate(int nr)
 	struct event *e;
 	struct tc_thread* tc;
 
+search_loop:
 	spin_lock(&sched.immediate.lock);
+search_loop_locked:
 	worker.woken_by_tcfd  = NULL;
 	CIRCLEQ_FOREACH(e, &sched.immediate.events, e_chain) {
 		if (nr != ANY_WORKER && e->tc->worker_nr != nr)
@@ -476,22 +478,26 @@ static int _run_immediate(int nr)
 		_remove_event(e, &sched.immediate);
 		tc = run_or_queue(e);
 		if (!tc) {
-			e = CIRCLEQ_FIRST(&sched.immediate.events);
-			continue;
+			/* We don't know what the queue looks like, so start at the 
+			 * beginning again. */
+			goto search_loop_locked;
 		}
-		spin_unlock(&sched.immediate.lock);
 		switch (e->flags) {
 		case EF_PRIORITY:
 		case EF_READY:
 		case EF_SIGNAL:
 			if (!CIRCLEQ_EMPTY(&sched.immediate.events))
 				iwi_immediate(); /* More work available, wakeup an worker */
+			spin_unlock(&sched.immediate.lock);
 			switch_to(tc);
 			return 1;
 		case EF_EXITING:
+			spin_unlock(&sched.immediate.lock);
 			tc_thread_free(e->tc);
-			spin_lock(&sched.immediate.lock);
-			e = CIRCLEQ_FIRST(&sched.immediate.events);
+			/* We cannot simply take the first or next element of 
+			 * sched.immediate - we've given up the lock, and so the queue 
+			 * might be *anything*. We have to start afresh. */
+			goto search_loop;
 			continue;
 		default:
 			msg_exit(1, "Wrong e->flags in immediate list\n");
