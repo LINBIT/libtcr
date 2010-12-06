@@ -550,6 +550,9 @@ void tc_sched_yield()
 	tc_scheduler();
 	if (worker.woken_by_event != &e)
 		remove_event(&e);
+	else
+		/* May not be accessed anymore. */
+		worker.woken_by_event = NULL;
 }
 
 void tc_scheduler(void)
