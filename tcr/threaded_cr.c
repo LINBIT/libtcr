@@ -27,6 +27,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdarg.h>
+#include <string.h>
 #include <assert.h>
 #include <sched.h>
 
@@ -384,6 +385,7 @@ void tc_thread_free(struct tc_thread *tc)
 	tc->cr = NULL;
 	if (tc->flags & TF_FREE_NAME)
 		free(tc->name);
+	memset(tc, 0xaf, sizeof(*tc));
 	free(tc);
 	_iwi_immediate();
 }
@@ -1066,6 +1068,7 @@ static void _tc_fd_unregister(struct tc_fd *tcfd, int sync)
 void tc_unregister_fd(struct tc_fd *tcfd)
 {
 	_tc_fd_unregister(tcfd, 1);
+	memset(tcfd, 0xeb, sizeof(*tcfd));
 	free(tcfd);
 }
 
