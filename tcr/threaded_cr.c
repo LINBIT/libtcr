@@ -356,6 +356,8 @@ int add_event_fd(struct event *e, __uint32_t ep_events, enum tc_event_flag flags
 
 	_add_event(e, &tcfd->events, tc_current());
 	rv = arm(tcfd);
+	if (rv != RV_OK)
+		_remove_event(e, &tcfd->events);
 unlock:
 	spin_unlock(&tcfd->events.lock);
 	return rv;
