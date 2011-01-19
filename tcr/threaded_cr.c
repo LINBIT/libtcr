@@ -94,6 +94,7 @@ struct scheduler {
 	spinlock_t sync_lock;
 	atomic_t sync_barrier;
 	struct clist_entry sleeping_workers;
+	struct tc_fd *free_list;
 	diagnostic_fn diagnostic;
 	int stack_size;            /* stack size for new tc_threads */
 	cpu_set_t available_cpus;    /* CPUs to use for the worker threads */
@@ -119,7 +120,7 @@ static void _signal_gets_delivered(struct event *e);
 static void signal_cancel_pending();
 static void worker_prepare_sleep();
 static void worker_after_sleep();
-static void synchronize_world();
+static void store_for_later_free(struct tc_fd *tcfd);
 static void iwi_immediate();
 static int fprintf_stderr(const char *fmt, va_list ap);
 
@@ -1012,6 +1013,7 @@ static void _tc_fd_init(struct tc_fd *tcfd, int fd)
 	int arg;
 
 	tcfd->fd = fd;
+	tcfd->free_list_next = NULL;
 	event_list_init(&tcfd->events);
 	tcfd->ep_events = 0;
 	atomic_set(&tcfd->err_hup, 0);
@@ -1046,7 +1048,13 @@ struct tc_fd *tc_register_fd(int fd)
 	return tcfd;
 }
 
-static void _tc_fd_unregister(struct tc_fd *tcfd, int sync)
+static void _tc_fd_free(struct tc_fd *tcfd)
+{
+	memset(tcfd, 0xbb, sizeof(*tcfd));
+	free(tcfd);
+}
+
+static void _tc_fd_unregister(struct tc_fd *tcfd, int free_later)
 {
 	struct epoll_event epe = { };
 
@@ -1061,15 +1069,30 @@ static void _tc_fd_unregister(struct tc_fd *tcfd, int sync)
 		msg_exit(1, "event list not empty in tc_unregister_fd()\n");
 	spin_unlock(&tcfd->events.lock);
 
-	if (sync)
-		synchronize_world();
+	if (free_later)
+		store_for_later_free(tcfd);
+	else
+		_tc_fd_free(tcfd);
 }
 
 void tc_unregister_fd(struct tc_fd *tcfd)
 {
 	_tc_fd_unregister(tcfd, 1);
-	memset(tcfd, 0xeb, sizeof(*tcfd));
-	free(tcfd);
+}
+
+static void _process_free_list(spinlock_t *lock_to_free)
+{
+	struct tc_fd *cur,*next;
+
+	cur = sched.free_list;
+	sched.free_list = NULL;
+	spin_unlock(lock_to_free);
+
+	while (cur) {
+		next = cur->free_list_next;
+		_tc_fd_free(cur);
+		cur = next;
+	}
 }
 
 static void worker_prepare_sleep()
@@ -1084,19 +1107,34 @@ static void worker_prepare_sleep()
 
 static void worker_after_sleep()
 {
+	eventfd_t c;
+	int new;
+	int have_lock;
+
 	/* These two checks have to made atomically w.r.t. sync_lock. */
 	spin_lock(&sched.sync_lock);
-	if (worker.must_sync) {
-		worker.must_sync = 0;
-		atomic_dec(&sched.sync_barrier);
-	}
+	have_lock = 1;
 	if (worker.is_on_sleeping_list)
 	{
 		CLIST_REMOVE(&worker.sleeping_chain);
 		worker.is_on_sleeping_list = 0;
 	}
-	spin_unlock(&sched.sync_lock);
+	if (worker.must_sync) {
+		worker.must_sync = 0;
+		new = atomic_dec(&sched.sync_barrier);
+		if (new == 0)
+		{
+			_process_free_list(&sched.sync_lock);
+			have_lock = 0;
+			if (read(sched.sync_fd, &c, sizeof(c)) != sizeof(c))
+				msg_exit(1, "read() failed with %m");
+		}
+	}
+
+	if (have_lock)
+		spin_unlock(&sched.sync_lock);
 }
+
 
 /* When removing a FD that might fire it is essential to make sure
  * that we do not get any events of that FD in, after this point,
@@ -1109,46 +1147,34 @@ static void worker_after_sleep()
  * (If they still access the tcfd, racing with it's destruction by 
  * tc_unregister_fd(), it's their fault.)
  *
- * Only the currently sleeping threads have to be told that this tcfd is no 
- * longer valid. We try to wake up all of them at once (via an IWI_SYNC event), 
- * and wait for their ACK.
- *
- * Multiple synchronize_world() calls can be made simultaneously; then the new 
- * sleepers are just added to the wait count (sched.sync_barrier) and are 
- * waited for.
- */
-static void synchronize_world()
+ * Only the currently sleeping threads have to be told that this tcfd is no
+ * longer valid. We try to wake up all of them at once (via an IWI_SYNC event),
+ * and the last one free()s the memory. */
+static void store_for_later_free(struct tc_fd *tcfd)
 {
-	struct clist_entry to_sync, *list;
+	struct clist_entry *list;
 	struct worker_struct *w;
 	eventfd_t c = 1;
 
+
 	spin_lock(&sched.sync_lock);
+	tcfd->free_list_next = sched.free_list;
+	sched.free_list = tcfd;
+
 	if (CLIST_EMPTY(&sched.sleeping_workers)) {
 		/* No new sleepers. */
 	}
 	else {
-		/* Move all list entries from sleeping_workers to to_sync */
-		CLIST_INIT(&to_sync);
-		CLIST_INSERT_AFTER(&sched.sleeping_workers, &to_sync);
-		/* Remove sched struct from the list */
-		CLIST_REMOVE(&sched.sleeping_workers);
-		/* Prepare a fresh list */
-		CLIST_INIT(&sched.sleeping_workers);
-		/* Now all these workers are belong to us */
-
-
-		/* Now process the client-list. */
-		list = to_sync.cl_next;
-		while (list != &to_sync) {
+		/* Process the sleeper-list. */
+		list = sched.sleeping_workers.cl_next;
+		while (list != &sched.sleeping_workers) {
 			w = container_of(list, struct worker_struct, sleeping_chain);
 			/* When a synchronize_world() is run while a thread waits for the lock 
 			 * in worker_prepare_sleep(), then the worker would be on the 
 			 * sleeping_workers list again.
 			 * If the next function is a synchronize_world() again (likely in 
 			 * leak_test2), then this would try to get the thread again ... */
-			if (!w->must_sync)
-			{
+			if (!w->must_sync) {
 				w->must_sync = 1;
 				atomic_inc(&sched.sync_barrier);
 				w->is_on_sleeping_list = 0;
@@ -1157,29 +1183,19 @@ static void synchronize_world()
 			 * worker-specific. */
 			list = list->cl_next;
 		}
-	}
-	spin_unlock(&sched.sync_lock);
-
-
-	/* Now preparation finished, wake other threads */
-	if (write(sched.sync_fd, &c, sizeof(c)) != sizeof(c))
-		msg_exit(1, "write() failed with: %m\n");
-
-	/* We use the semaphore to see whether all threads waiting at this barrier 
-	 * have woken up again. */
-	while (atomic_read(&sched.sync_barrier))
-	{
-		sched_yield();
+		CLIST_INIT(&sched.sleeping_workers);
 	}
 
-	if (read(sched.sync_fd, &c, sizeof(c)) != sizeof(c))
-		msg_exit(1, "read() failed with %m");
-	c--;
-	if (c) {
-		/* Wake other waiting threads */
-		write(sched.sync_fd, &c, sizeof(c));
+	if (atomic_read(&sched.sync_barrier)) {
+		spin_unlock(&sched.sync_lock);
+		if (write(sched.sync_fd, &c, sizeof(c)) != sizeof(c))
+			msg_exit(1, "write() failed with: %m\n");
 	}
+	else
+		_process_free_list(&sched.sync_lock);
 }
+
+
 
 void tc_mutex_init(struct tc_mutex *m)
 {
@@ -1506,7 +1522,7 @@ void tc_signal_fire(struct tc_signal *s)
 enum tc_rv tc_sleep(int clockid, time_t sec, long nsec)
 {
 	struct itimerspec ts;
-	struct tc_fd tcfd;
+	struct tc_fd *tcfd;
 	enum tc_rv rv;
 	int fd;
 
@@ -1519,15 +1535,15 @@ enum tc_rv tc_sleep(int clockid, time_t sec, long nsec)
 	if (fd == -1)
 		msg_exit(1, "timerfd_create with %m\n");
 
-	_tc_fd_init(&tcfd, fd);
-	if (timerfd_settime(fd, 0, &ts, NULL))
+	tcfd = tc_register_fd(fd);
+	if (!tcfd || timerfd_settime(fd, 0, &ts, NULL))
 		rv = RV_FAILED;
 	else
-		rv = tc_wait_fd(EPOLLIN, &tcfd);
-	/* If we got interrupted by a signal, another thread might see/use the 
+		rv = tc_wait_fd(EPOLLIN, tcfd);
+	close(tcfd->fd);
+	/* If we got interrupted by a signal, another thread might see/use the
 	 * tc_fd - so we have to clean up. */
-	_tc_fd_unregister(&tcfd, rv == RV_INTR);
-	close(tcfd.fd);
+	_tc_fd_unregister(tcfd, rv == RV_INTR);
 	return rv;
 }
 

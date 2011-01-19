@@ -69,6 +69,7 @@ struct tc_fd {
 	atomic_t err_hup;
 	__uint32_t ep_events;  /* current mask */
 	struct event_list events;
+	struct tc_fd *free_list_next;
 };
 
 struct tc_waitq {
