@@ -170,7 +170,7 @@ void tc_mutex_init(struct tc_mutex *m);
 enum tc_rv tc_mutex_lock(struct tc_mutex *m);
 void tc_mutex_unlock(struct tc_mutex *m);
 void tc_mutex_destroy(struct tc_mutex *m);
-/* A thread holding the mutex can ask whether there are other waiting threads. 
+/* A thread holding the mutex can ask whether there are other waiting threads.
  * */
 int tc_mutex_waiters(struct tc_mutex *m);
 enum tc_rv tc_mutex_trylock(struct tc_mutex *m);

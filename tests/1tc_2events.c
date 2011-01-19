@@ -24,7 +24,7 @@ void victim(void* a)
 	int i;
 
 	ss = tc_signal_subscribe(&the_drbd_signal);
-	// Removing this tc_sleep changes the order on some libtcr queue, and makes 
+	// Removing this tc_sleep changes the order on some libtcr queue, and makes
 	// this problem vanish.
 	tc_sleep(CLOCK_MONOTONIC, 0, 300e6);
 	printf("victim %p: waiting for lock\n", tc_current());
@@ -33,7 +33,7 @@ void victim(void* a)
 	 * but then something horrible happens. */
 	i=tc_mutex_lock(&m);
 	printf("victim %p: lock %d\n", tc_current(), i);
-	
+
 	if (!i)
 		tc_mutex_unlock(&m);
 
@@ -62,7 +62,7 @@ void tl(void *a)
 	tc_mutex_unlock(&m);
 	printf("   %p: unlocked!\n", tc_current());
 }
-
+
 
 void starter(void *unused)
 {
@@ -92,8 +92,8 @@ void starter(void *unused)
 
 
 void sig(int s)
-{ 
-	printf("signal caught\n"); fflush(NULL); 
+{
+	printf("signal caught\n"); fflush(NULL);
 	exit(1); /* gcov needs a clean exit. */
 }
 

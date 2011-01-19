@@ -226,7 +226,7 @@ static struct event *matching_event(__uint32_t em, struct events *es, __uint32_t
 				out = e;
 			}
 		}
-		if (!em) 
+		if (!em)
 			break;
 	}
 
@@ -254,14 +254,14 @@ static struct event *wakeup_all_events(struct events *es)
 
 	/* We cannot use
 	 *   CIRCLEQ_FOREACH(e, es, e_chain)
-	 * here, as this macro uses the pointers from the current element (e) to 
-	 * get to the next - but by then the pointers are already changed by 
+	 * here, as this macro uses the pointers from the current element (e) to
+	 * get to the next - but by then the pointers are already changed by
 	 * move_to_immediate(). */
 	for (e = es->cqh_first;
 		e != (const void *)es;
 		e = next)
 	{
-		/* Remember next element; we don't have the pointer anymore after the 
+		/* Remember next element; we don't have the pointer anymore after the
 		 * move_to_immediate().  */
 		next = e->e_chain.cqe_next;
 		if (!ew && e->tc->worker_nr == worker.nr) {
@@ -484,7 +484,7 @@ search_loop_locked:
 		_remove_event(e, &sched.immediate);
 		tc = run_or_queue(e);
 		if (!tc) {
-			/* We don't know what the queue looks like, so start at the 
+			/* We don't know what the queue looks like, so start at the
 			 * beginning again. */
 			goto search_loop_locked;
 		}
@@ -500,8 +500,8 @@ search_loop_locked:
 		case EF_EXITING:
 			spin_unlock(&sched.immediate.lock);
 			tc_thread_free(e->tc);
-			/* We cannot simply take the first or next element of 
-			 * sched.immediate - we've given up the lock, and so the queue 
+			/* We cannot simply take the first or next element of
+			 * sched.immediate - we've given up the lock, and so the queue
 			 * might be *anything*. We have to start afresh. */
 			goto search_loop;
 			continue;
@@ -1140,11 +1140,11 @@ static void worker_after_sleep()
  * that we do not get any events of that FD in, after this point,
  * since we want to delete the data structure describing that FD.
  *
- * _tc_fd_unregister() and add_event_fd() make sure that no events are defined 
- * for this fd, and that no new events can be registered anymore. So all 
- * tc_threads that are currently busy cannot make use of it anymore, and are 
+ * _tc_fd_unregister() and add_event_fd() make sure that no events are defined
+ * for this fd, and that no new events can be registered anymore. So all
+ * tc_threads that are currently busy cannot make use of it anymore, and are
  * therefore safe.
- * (If they still access the tcfd, racing with it's destruction by 
+ * (If they still access the tcfd, racing with it's destruction by
  * tc_unregister_fd(), it's their fault.)
  *
  * Only the currently sleeping threads have to be told that this tcfd is no
@@ -1169,17 +1169,17 @@ static void store_for_later_free(struct tc_fd *tcfd)
 		list = sched.sleeping_workers.cl_next;
 		while (list != &sched.sleeping_workers) {
 			w = container_of(list, struct worker_struct, sleeping_chain);
-			/* When a synchronize_world() is run while a thread waits for the lock 
-			 * in worker_prepare_sleep(), then the worker would be on the 
+			/* When a synchronize_world() is run while a thread waits for the lock
+			 * in worker_prepare_sleep(), then the worker would be on the
 			 * sleeping_workers list again.
-			 * If the next function is a synchronize_world() again (likely in 
+			 * If the next function is a synchronize_world() again (likely in
 			 * leak_test2), then this would try to get the thread again ... */
 			if (!w->must_sync) {
 				w->must_sync = 1;
 				atomic_inc(&sched.sync_barrier);
 				w->is_on_sleeping_list = 0;
 			}
-			/* We get them out of epoll_wait() by a unix signal - this is 
+			/* We get them out of epoll_wait() by a unix signal - this is
 			 * worker-specific. */
 			list = list->cl_next;
 		}
@@ -1223,7 +1223,7 @@ enum tc_rv tc_mutex_lock(struct tc_mutex *m)
 		tc_waitq_finish_wait(&m->wq, &e);
 		return RV_OK;
 	}
-	/* The event is not usable anymore, as 
+	/* The event is not usable anymore, as
 	 * we're leaving the frame.  */
 	if (e.el)
 		remove_event(&e);
