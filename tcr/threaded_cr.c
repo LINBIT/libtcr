@@ -192,7 +192,7 @@ static void move_to_immediate(struct event *e)
 }
 
 /* must_hold tcfd->lock */
-static struct event *matching_event(__uint32_t em, struct events *es)
+static struct event *matching_event(__uint32_t em, struct events *es, __uint32_t *remove_handled_bits)
 {
 	struct event *e;
 	struct event *in  = NULL;
@@ -201,6 +201,8 @@ static struct event *matching_event(__uint32_t em, struct events *es)
 
 	CIRCLEQ_FOREACH(e, es, e_chain) {
 		if (em & e->ep_events & EPOLLIN) {
+			if (remove_handled_bits)
+				*remove_handled_bits &= ~EPOLLIN;
 			if (!in)
 				in = e;
 			if (e->tc->worker_nr == worker.nr)
@@ -212,6 +214,8 @@ static struct event *matching_event(__uint32_t em, struct events *es)
 
 		}
 		if (em & e->ep_events & EPOLLOUT) {
+			if (remove_handled_bits)
+				*remove_handled_bits &= ~EPOLLOUT;
 			if (!out)
 				out = e;
 			if (e->tc->worker_nr == worker.nr)
@@ -622,7 +626,6 @@ static void scheduler_part2()
 		tcfd = (struct tc_fd *)epe.data.ptr;
 
 		spin_lock(&tcfd->events.lock);
-		tcfd->ep_events = -1; /* recalc them */
 
 		if (atomic_read(&tcfd->err_hup))
 		{
@@ -636,8 +639,35 @@ static void scheduler_part2()
 		if (epe.events & (EPOLLERR | EPOLLHUP)) {
 			atomic_set(&tcfd->err_hup, 1);
 			e = wakeup_all_events(&tcfd->events.events);
-		} else
-			e = matching_event(epe.events, &tcfd->events.events);
+		} else {
+			e = matching_event(epe.events, &tcfd->events.events, &tcfd->ep_events);
+			/* If there are still waiting threads, we have to make sure that
+			 * the kernels event mask matches the needed one.
+			 *
+			 * If two threads are waiting on EPOLLIN, and one thread gets
+			 * notified, the other one will not get woken up.
+			 * And telling "but the first thread didn't call tc_rearm()" is not
+			 * a valid argument - a third thread might have interfered with
+			 * EPOLLOUT in the middle.
+			 *
+			 * So the conclusion is - the tc_threads have to use locking
+			 * around fd-handling code; hoping to have
+			 *     tc_wait_fd() to tc_rearm()
+			 * atomic doesn't work. */
+			/* At least the returned event might be left on the event list;
+			 * so we cannot simply use CIRCLEQ_EMPTY(). */
+			if (tcfd->ep_events &&
+					/* If empty, don't rearm */
+					!CIRCLEQ_EMPTY(&tcfd->events.events) &&
+					/* If only the event we just found left, don't rearm */
+					(CIRCLEQ_FIRST(&tcfd->events.events) != e ||
+					 CIRCLEQ_LAST(&tcfd->events.events) != e))
+			{
+				er = arm(tcfd);
+				if (er)
+					msg("cannot re-arm fd %u (tcfd %p)\n", tcfd->fd, tcfd);
+			}
+		}
 		if (!e) {
 			/* That can happen if a fd was enabled by a call to tc_wait_fd(),
 			   that was interrupted by a tc_signal later. Then an event on the
