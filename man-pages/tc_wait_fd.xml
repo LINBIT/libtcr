@@ -87,7 +87,16 @@
       released to another thread thats waiting in <option>tc_rearm()</option>; 
       this way the "ownership" of file descriptors can be transferred.
     </para>
-
+    <para>
+      Note: <option>tc_wait_fd()</option>, <option>tc_wait_fd_prio()</option> 
+      and <option>tc_rearm()</option> do not replace
+      use of locks around the filehandle-using parts in the application.
+      If there are multiple threads waiting for <option>EPOLLIN</option> on a socket, only one 
+      will get woken up; but as soon as a writer asks for 
+      <option>EPOLLOUT,</option> the <option>EPOLLIN</option> will get 
+      triggered again (as there are other threads waiting for input), and 
+      another reader will get woken up - which might not be the expected result.
+    </para>
   </refsection>
   <refsection>
     <title>Return Values</title>
