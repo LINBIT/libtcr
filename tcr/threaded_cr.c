@@ -1376,14 +1376,16 @@ int tc_waitq_finish_wait(struct tc_waitq *wq, struct event *e)
 	return interrupted;
 }
 
-void tc_waitq_wait(struct tc_waitq *wq)
+int tc_waitq_wait(struct tc_waitq *wq)
 {
 	struct event e;
+	int rv;
 
 	e.el = NULL;
 	tc_waitq_prepare_to_wait(wq, &e);
 	tc_scheduler();
-	tc_waitq_finish_wait(wq, &e);
+	rv = tc_waitq_finish_wait(wq, &e);
+	return rv;
 }
 
 void tc_waitq_wakeup_one(struct tc_waitq *wq)

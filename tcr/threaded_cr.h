@@ -203,7 +203,7 @@ void tc_waitq_init(struct tc_waitq *wq);
 void tc_waitq_wakeup_all(struct tc_waitq *wq);
 void tc_waitq_wakeup_one(struct tc_waitq *wq);
 void tc_waitq_unregister(struct tc_waitq *wq);
-void tc_waitq_wait(struct tc_waitq *wq);
+int tc_waitq_wait(struct tc_waitq *wq);
 
 /* Source compatibility stuff. In new code use the _one or _all variant*/
 #define tc_waitq_wakeup(WQ) tc_waitq_wakeup_all(WQ)
@@ -421,7 +421,7 @@ static inline int tc_rw_get_readers(struct tc_rw_lock *l)
 #define tc_wait_fd_prio(E, T)	({ enum tc_rv rv; SET_CALLER; rv = tc_wait_fd_prio(E, T); UNSET_CALLER; rv; })
 #define tc_mutex_lock(M)	({ enum tc_rv rv; SET_CALLER; rv = tc_mutex_lock(M); UNSET_CALLER; rv; })
 #define tc_thread_wait(T)	({ enum tc_rv rv; SET_CALLER; rv = tc_thread_wait(T); UNSET_CALLER; rv; })
-#define tc_waitq_wait(W)	({ SET_CALLER; tc_waitq_wait(W); UNSET_CALLER; })
+#define tc_waitq_wait(W)	({ enum tc_rv rv; SET_CALLER; rv = tc_waitq_wait(W); UNSET_CALLER; rv; })
 #define tc_thread_pool_wait(P)	({ enum tc_rv rv; SET_CALLER; rv = tc_thread_pool_wait(P); UNSET_CALLER; rv; })
 #define tc_sleep(C, S, N)	({ enum tc_rv rv; SET_CALLER; rv = tc_sleep(C, S, N); UNSET_CALLER; rv; })
 
