@@ -481,7 +481,7 @@ search_loop:
 search_loop_locked:
 	worker.woken_by_tcfd  = NULL;
 	CIRCLEQ_FOREACH(e, &sched.immediate.events, e_chain) {
-		if (nr != ANY_WORKER && e->tc->worker_nr != nr)
+		if (!(nr == ANY_WORKER || e->tc->worker_nr == nr))
 			continue;
 		_remove_event(e, &sched.immediate);
 		tc = run_or_queue(e);
