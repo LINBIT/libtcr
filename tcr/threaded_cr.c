@@ -548,19 +548,26 @@ static void iwi_immediate()
 		_iwi_immediate();
 }
 
-void tc_sched_yield()
+int tc_sched_yield()
 {
 	struct tc_thread *tc = tc_current();
 	struct event e;
+	int ret;
 
+	ret = RV_OK;
 	e.el = NULL;
 	add_event_cr(&e, 0, EF_READY, tc);
 	tc_scheduler();
 	if (worker.woken_by_event != &e)
+	{
+		ret = RV_INTR;
 		remove_event(&e);
+	}
 	else
 		/* May not be accessed anymore. */
 		worker.woken_by_event = NULL;
+
+	return ret;
 }
 
 void tc_scheduler(void)

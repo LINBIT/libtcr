@@ -109,7 +109,7 @@ void tc_run(void (*func)(void *), void *data, char* name, int nr_of_workers);
 void tc_init();
 void tc_worker_init(int i);
 void tc_scheduler();
-void tc_sched_yield();
+int tc_sched_yield();
 
 typedef int (*diagnostic_fn)(const char *format, va_list ap);
 void tc_set_diagnostic_fn(diagnostic_fn f);
@@ -416,7 +416,7 @@ static inline int tc_rw_get_readers(struct tc_rw_lock *l)
 
 
 #ifdef WAIT_DEBUG
-#define tc_sched_yield()	({ SET_CALLER; tc_sched_yield(); UNSET_CALLER; })
+#define tc_sched_yield()	({ enum tc_rv rv; SET_CALLER; rv = tc_sched_yield(); UNSET_CALLER; rv; })
 #define tc_wait_fd(E, T)	({ enum tc_rv rv; SET_CALLER; rv = tc_wait_fd(E, T); UNSET_CALLER; rv; })
 #define tc_wait_fd_prio(E, T)	({ enum tc_rv rv; SET_CALLER; rv = tc_wait_fd_prio(E, T); UNSET_CALLER; rv; })
 #define tc_mutex_lock(M)	({ enum tc_rv rv; SET_CALLER; rv = tc_mutex_lock(M); UNSET_CALLER; rv; })
