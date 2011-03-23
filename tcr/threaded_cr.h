@@ -31,6 +31,10 @@
 #include "spinlock.h"
 #include "coroutines.h"
 
+
+/* Signal to be used to wakeup workers. */
+#define SIGNAL_FOR_WAKEUP (SIGRTMIN + 6)
+
 enum tc_event_flag {
 	EF_READY       = 1, /* I am ready to run */
 	EF_EXITING     = 2, /* Free my struct tc_thread */

@@ -28,6 +28,7 @@
 #include <stdlib.h>
 #include <stdarg.h>
 #include <string.h>
+#include <signal.h>
 #include <assert.h>
 #include <sched.h>
 
@@ -76,6 +77,7 @@ struct worker_struct {
 	struct clist_entry sleeping_chain;
 	int is_on_sleeping_list:1;
 	int must_sync:1;
+	pid_t tid;
 };
 
 enum inter_worker_interrupts {
@@ -89,7 +91,6 @@ struct scheduler {
 	struct event_list immediate;
 	int nr_of_workers;
 	int efd;                   /* epoll fd */
-	int sync_fd;               /* IWI event fd to synchronize all workers */
 	int immediate_fd;          /* IWI immediate */
 	spinlock_t sync_lock;
 	atomic_t sync_barrier;
@@ -616,12 +617,22 @@ static void scheduler_part2()
 		run_immediate();
 
 		worker_prepare_sleep();
-		do {
+		while (1) {
 			er = epoll_wait(sched.efd, &epe, 1, -1);
-		} while (er < 0 && errno == EINTR);
+			if (er >= 0)
+				break; /* There's something to handle */
+			if (errno == EINTR) {
+				if (worker.must_sync) {
+					/* Sync necessary */
+					epe.data.ptr = IWI_SYNC;
+					break;
+				}
+				/* Else continue loop */
+			}
+			else
+				msg_exit(1, "epoll_wait() failed with: %m\n");
+		}
 
-		if (er < 0)
-			msg_exit(1, "epoll_wait() failed with: %m\n");
 
 		switch ((long)epe.data.ptr) {
 		case IWI_SYNC:
@@ -765,32 +776,32 @@ found_cpu:
 	worker.sched_p2.worker_nr = i;
 	worker.must_sync = 0;
 	worker.is_on_sleeping_list = 0;
+	worker.tid = syscall(__NR_gettid);
 }
+
+static void ignore_signal(int sig)
+{
+	/* Just needed to get out of epoll_wait() */
+}
+
 
 void tc_init()
 {
-	struct epoll_event epe;
-
 	event_list_init(&sched.immediate);
 	LIST_INIT(&sched.threads);
 	spin_lock_init(&sched.lock);
+	if (SIGNAL_FOR_WAKEUP > SIGRTMAX)
+		msg_exit(1, "libTCR: bad value for SIGNAL_FOR_WAKEUP\n");
+
+	signal(SIGNAL_FOR_WAKEUP, ignore_signal);
 
 	spin_lock_init(&sched.sync_lock);
 	atomic_set(&sched.sync_barrier, 0);
 	CLIST_INIT(&sched.sleeping_workers);
-	sched.sync_fd = eventfd(0, 0);
-	if (sched.sync_fd == -1)
-		msg_exit(1, "eventfd() failed with: %m\n");
-
+	
 	sched.efd = epoll_create(1);
 	if (sched.efd < 0)
 		msg_exit(1, "epoll_create failed with %m\n");
-
-	epe.data.ptr = IWI_SYNC;
-	epe.events = EPOLLIN;
-
-	if (epoll_ctl(sched.efd, EPOLL_CTL_ADD, sched.sync_fd, &epe))
-		msg_exit(1, "epoll_ctl failed with %m\n");
 
 	sched.immediate_fd = eventfd(0, 0);
 	if (sched.immediate_fd == -1)
@@ -1133,7 +1144,6 @@ static void worker_prepare_sleep()
 
 static void worker_after_sleep()
 {
-	eventfd_t c;
 	int new;
 	int have_lock;
 
@@ -1152,8 +1162,6 @@ static void worker_after_sleep()
 		{
 			_process_free_list(&sched.sync_lock);
 			have_lock = 0;
-			if (read(sched.sync_fd, &c, sizeof(c)) != sizeof(c))
-				msg_exit(1, "read() failed with %m");
 		}
 	}
 
@@ -1180,7 +1188,6 @@ static void store_for_later_free(struct tc_fd *tcfd)
 {
 	struct clist_entry *list;
 	struct worker_struct *w;
-	eventfd_t c = 1;
 
 
 	spin_lock(&sched.sync_lock);
@@ -1204,9 +1211,8 @@ static void store_for_later_free(struct tc_fd *tcfd)
 				w->must_sync = 1;
 				atomic_inc(&sched.sync_barrier);
 				w->is_on_sleeping_list = 0;
+				tgkill(getpid(), w->tid, SIGNAL_FOR_WAKEUP);
 			}
-			/* We get them out of epoll_wait() by a unix signal - this is
-			 * worker-specific. */
 			list = list->cl_next;
 		}
 		CLIST_INIT(&sched.sleeping_workers);
@@ -1214,8 +1220,7 @@ static void store_for_later_free(struct tc_fd *tcfd)
 
 	if (atomic_read(&sched.sync_barrier)) {
 		spin_unlock(&sched.sync_lock);
-		if (write(sched.sync_fd, &c, sizeof(c)) != sizeof(c))
-			msg_exit(1, "write() failed with: %m\n");
+		/* See comment in worker_after_sleep */
 	}
 	else
 		_process_free_list(&sched.sync_lock);

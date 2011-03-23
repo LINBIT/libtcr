@@ -43,6 +43,13 @@ static inline int timerfd_gettime (int __ufd, struct itimerspec *__otmr)
 }
 #endif
 
+static inline int tgkill (pid_t tgid, pid_t tid, int sig)
+{
+	return syscall(SYS_tgkill, tgid, tid, sig);
+}
+
+
+
 #ifndef HAVE_MAP_STACK
 #define MAP_STACK       0x20000
 #endif
