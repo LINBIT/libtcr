@@ -225,10 +225,16 @@ extern __thread int _caller_line;
 #define UNSET_CALLER
 #endif
 
+
+static inline void tc_event_init(struct event *e) {
+	e->el = NULL;
+}
+
+
 #define __tc_wait_event(wq, cond, rv)					\
 do {									\
-	struct event e;			                                \
-	e.el = NULL;			                                \
+	struct event e;							\
+	tc_event_init(&e);						\
 	while (1) {							\
 		tc_waitq_prepare_to_wait(wq, &e);			\
 		if (cond) {						\

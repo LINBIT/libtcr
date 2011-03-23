@@ -345,9 +345,9 @@ int add_event_fd(struct event *e, __uint32_t ep_events, enum tc_event_flag flags
 {
 	int rv;
 
- 	e->ep_events = ep_events;
- 	e->flags = flags;
-	e->el = NULL;
+	e->ep_events = ep_events;
+	e->flags = flags;
+	tc_event_init(e);
 
 	spin_lock(&tcfd->events.lock);
 	rv = RV_FAILED;
@@ -555,7 +555,7 @@ int tc_sched_yield()
 	int ret;
 
 	ret = RV_OK;
-	e.el = NULL;
+	tc_event_init(&e);
 	add_event_cr(&e, 0, EF_READY, tc);
 	tc_scheduler();
 	if (worker.woken_by_event != &e)
@@ -936,7 +936,7 @@ static struct tc_thread *_tc_thread_new(void (*func)(void *), void *data, char* 
 	atomic_set(&tc->refcnt, 0);
 	spin_lock_init(&tc->running);
 	tc->flags = 0;
-	tc->e.el = NULL;
+	tc_event_init(&tc->e);
 	event_list_init(&tc->pending);
 	tc->worker_nr = ANY_WORKER;
 
@@ -1236,7 +1236,7 @@ enum tc_rv tc_mutex_lock(struct tc_mutex *m)
 	if (atomic_set_if_eq(1, 0, &m->count))
 		return RV_OK;
 
-	e.el = NULL;
+	tc_event_init(&e);
 	tc_waitq_prepare_to_wait(&m->wq, &e);
 	if (atomic_add_return(1, &m->count) > 1) {
 		tc_scheduler();
@@ -1303,7 +1303,7 @@ enum tc_rv tc_thread_wait(struct tc_thread *wait_for)
 	struct event e;
 	enum tc_rv rv;
 
-	e.el = NULL;
+	tc_event_init(&e);
 	spin_lock(&sched.lock);
 	rv = _thread_valid(wait_for);  /* wait_for might have already exited */
 	if (rv == RV_OK)
@@ -1388,7 +1388,7 @@ int tc_waitq_wait(struct tc_waitq *wq)
 	struct event e;
 	int rv;
 
-	e.el = NULL;
+	tc_event_init(&e);
 	tc_waitq_prepare_to_wait(wq, &e);
 	tc_scheduler();
 	rv = tc_waitq_finish_wait(wq, &e);
@@ -1460,7 +1460,7 @@ struct tc_signal_sub *tc_signal_subscribe_exist(struct tc_signal *s, struct tc_s
 	 * tc gets set by _add_event only. */
 	ss->event.signal = s;
 	ss->event.flags = EF_SIGNAL;
-	ss->event.el = NULL;
+	tc_event_init(&ss->event);
 	_tc_waitq_prepare_to_wait(&s->wq, &ss->event, tc_current());
 
 	spin_lock(&s->wq.waiters.lock);
