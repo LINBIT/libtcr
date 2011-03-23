@@ -219,6 +219,10 @@ void starter(void *unused)
 	struct tc_thread *s;
 	struct tc_fd *tfd= tc_register_fd(fd);
 
+	tc_signal_init(&sig);
+	tc_signal_init(&socks_dead);
+	tc_mutex_init(&m);
+
 	printf("\n\n\n\n\n\nPlease press enter a few characters in varying intervals.\nq as first character for quit.\n\n");
 
 	reporter=5;
@@ -237,10 +241,7 @@ void starter(void *unused)
 
 int main()
 {
-	tc_signal_init(&sig);
-	tc_signal_init(&socks_dead);
-	tc_mutex_init(&m);
-	tc_run(starter, NULL, "test", 1);
+	tc_run(starter, NULL, "test", 0);
 
 	return 0;
 }

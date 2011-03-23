@@ -44,6 +44,7 @@ void starter(void *unused)
 	int i;
 
 	printf("%p: starter\n", tc_current());
+	tc_signal_init(&the_drbd_signal);
 	tc_mutex_init(&m);
 	for(i = 0; i<sizeof(t)/sizeof(t[0]); i++)
 		t[i] = tc_thread_new(worker, &m, "worker");
@@ -66,8 +67,6 @@ int main()
 	signal(SIGINT, sig);
 
 //	alarm(2);
-	tc_mutex_init(&m);
-	tc_signal_init(&the_drbd_signal);
 	tc_run(starter, NULL, "test", 2);
 	printf("end.\n");
 	return 0;

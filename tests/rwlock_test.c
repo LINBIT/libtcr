@@ -13,6 +13,7 @@ float x=2.1;
 void starter(void *unused)
 {
 	int i;
+	tc_rw_init(&lock);
 	tc_parallel_for(i, i = 0, i < max, i++) {
 		int r;
 		r=rand() & 0xfff;
@@ -60,7 +61,6 @@ int main(int argc, char *args[])
 	if (argc>2) max=atoi(args[2]);
 	if (!max) max=1000000;
 
-	tc_rw_init(&lock);
 	tc_run(starter, NULL, "test", tc);
 
 #ifdef CONTENTION
