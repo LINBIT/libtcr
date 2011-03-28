@@ -404,6 +404,7 @@ do {									\
 void tc_rw_init(struct tc_rw_lock *l);
 enum tc_rv tc_rw_r_lock(struct tc_rw_lock *l);
 enum tc_rv tc_rw_w_lock(struct tc_rw_lock *l);
+enum tc_rv tc_rw_w_trylock(struct tc_rw_lock *l);
 static inline void tc_rw_r_unlock(struct tc_rw_lock *l)
 {
 	if (atomic_dec(&l->readers) == 0)
@@ -437,6 +438,7 @@ static inline int tc_rw_get_readers(struct tc_rw_lock *l)
 
 #define tc_rw_w_lock(M)	({ enum tc_rv rv; SET_CALLER; rv = tc_rw_w_lock(M); UNSET_CALLER; rv; })
 #define tc_rw_r_lock(M)	({ enum tc_rv rv; SET_CALLER; rv = tc_rw_r_lock(M); UNSET_CALLER; rv; })
+#define tc_rw_w_trylock(M)	({ enum tc_rv rv; SET_CALLER; rv = tc_rw_w_trylock(M); UNSET_CALLER; rv; })
 
 /* This is a handy function to be called from within gdb */
 void tc_dump_threads(void);

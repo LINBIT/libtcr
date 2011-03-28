@@ -111,6 +111,7 @@ struct scheduler {
 #undef tc_thread_pool_wait
 #undef tc_sleep
 #undef tc_rw_w_lock
+#undef tc_rw_w_trylock
 #undef tc_rw_r_lock
 
 __thread char *_caller_file = "untracked tc_scheduler() call";
@@ -1612,6 +1613,20 @@ enum tc_rv tc_rw_w_lock(struct tc_rw_lock *l)
 		 * - there might still be readers. */
 		if (rv)
 			tc_mutex_unlock(&l->mutex);
+	}
+	return rv;
+}
+
+enum tc_rv tc_rw_w_trylock(struct tc_rw_lock *l)
+{
+	enum tc_rv rv;
+
+	rv = tc_mutex_trylock(&l->mutex);
+	if (rv == RV_OK) {
+		if (atomic_read(&l->readers)) {
+			tc_mutex_unlock(&l->mutex);
+                        rv = RV_FAILED;
+                }
 	}
 	return rv;
 }
