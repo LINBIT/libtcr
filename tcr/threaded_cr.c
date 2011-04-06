@@ -52,6 +52,7 @@ enum thread_flags {
 
 struct tc_thread {
 	char *name;		/* Leave that first, for debugging spinlocks */
+	void *per_thread_data;	/* Leave that second. */
 	LIST_ENTRY(tc_thread) tc_chain;      /* list of all threads */
 	LIST_ENTRY(tc_thread) threads_chain; /* list of threads created with one call to tc_thread_pool_new() */
 	struct coroutine *cr;
@@ -944,6 +945,7 @@ static struct tc_thread *_tc_thread_new(void (*func)(void *), void *data, char* 
 
 	cr_set_uptr(tc->cr, (void *)tc);
 	tc->name = name;
+	tc->per_thread_data = tc_thread_var_get();
 	tc_waitq_init(&tc->exit_waiters);
 	atomic_set(&tc->refcnt, 0);
 	spin_lock_init(&tc->running);

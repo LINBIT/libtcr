@@ -14,6 +14,8 @@
     <refname>tc_thread_wait</refname>
     <refname>tc_thread_name</refname>
     <refname>tc_current</refname>
+    <refname>tc_thread_var_get</refname>
+    <refname>tc_thread_var_set</refname>
     <refname>tc_die</refname>
 
     <refpurpose>libtcr thread functions</refpurpose>
@@ -34,6 +36,12 @@
     </cmdsynopsis>
     <cmdsynopsis>
       <command>struct tc_thread *tc_current();</command>
+    </cmdsynopsis>
+    <cmdsynopsis>
+      <command>void *tc_thread_var_get()</command>
+    </cmdsynopsis>
+    <cmdsynopsis>
+      <command>void *tc_thread_var_get(void *<replaceable>data</replaceable>)</command>
     </cmdsynopsis>
     <cmdsynopsis>
       <command>void tc_die();</command>
@@ -62,6 +70,17 @@
     <para>
       <option>tc_thread_current()</option> returns the callers struct tc_thread
       object.
+    </para>
+    <para>
+      <option>tc_thread_var_set()</option> stores a <option>void*</option> in 
+      the current tc_thread structure, and
+      <option>tc_thread_var_get()</option> retrieves the stored value. This is 
+      similar to a <option>__thread</option> variable with pthreads.
+    </para>
+    <para>
+      The stored pointer is copied into newly created threads, ie. the "child" 
+      thread inherits the pointer from the "parent" thread. (But remember that 
+      there's no hierarchy among tc_threads!)
     </para>
     <para>
       <option>tc_die()</option> is a non returning function. It terminates the 

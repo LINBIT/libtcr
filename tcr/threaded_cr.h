@@ -169,6 +169,24 @@ static inline int tc_fd(struct tc_fd *tcfd)
 	return tcfd->fd;
 }
 
+/* A per tc-thread opaque pointer. */
+static inline void* _tc_thread_var_get(struct tc_thread *tc) 
+{
+	return ((void**)tc)[1];
+}
+static inline void* tc_thread_var_get()
+{
+	return _tc_thread_var_get(tc_current());
+}
+static inline void* _tc_thread_var_set(struct tc_thread *tc, void *data)
+{
+	return ((void**)tc)[1]=data;
+}
+static inline void* tc_thread_var_set(void *data)
+{
+	return _tc_thread_var_set(tc_current(), data);
+}
+
 /* Mutex. */
 void tc_mutex_init(struct tc_mutex *m);
 enum tc_rv tc_mutex_lock(struct tc_mutex *m);
