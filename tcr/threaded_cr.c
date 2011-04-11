@@ -1576,10 +1576,14 @@ enum tc_rv tc_sleep(int clockid, time_t sec, long nsec)
 		rv = RV_FAILED;
 	else
 		rv = tc_wait_fd(EPOLLIN, tcfd);
-	close(tcfd->fd);
 	/* If we got interrupted by a signal, another thread might see/use the
 	 * tc_fd - so we have to clean up. */
 	_tc_fd_unregister(tcfd, rv == RV_INTR);
+	/* The close must happen after the unregister call.
+	 * If it's before the kernel might return the same fd to another thread
+	 * which would fail because the fd gets removed from the efd set in
+	 * _tc_fd_unregister(). */
+	close(fd);
 	return rv;
 }
 
