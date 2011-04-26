@@ -926,6 +926,8 @@ void tc_setup(void *arg1, void *arg2)
 
 	spin_unlock(&previous->running);
 
+	worker.woken_by_event = NULL;
+
 	func(arg2);
 
 	tc_die();
