@@ -7,7 +7,7 @@ TARGETS += tc_waitq_test3 tc_waitq_test5 leak_test leak_test2 yield_test
 TARGETS += yield_test1 parallel_for unix_signal tc_thread_dump
 TARGETS += pipelined-server tc_rwlock_signal_test rwlock_test tc_sleep_test
 TARGETS += 1tc_2events tc_wait_fd tc_waitfd-both-directions epoll-no-OUT
-TARGETS += spinlock_test waitq_race tc_mutex_test3
+TARGETS += spinlock_test waitq_race tc_mutex_test3 tc_wait_fd2
 
 SHELL	:= /bin/bash
 
@@ -63,6 +63,12 @@ $(RESULT_PATH)pipelined-server.txt: pipelined-server
 	$(PRE)
 	@perl -e '$$|=1; for(0 .. 100) { print "XXXX-$$$$-$$_\n"; select(undef,undef,undef,0.02); }' | ./$< &> $@.tmp
 	$(POST)
+
+$(RESULT_PATH)tc_wait_fd2.txt: tc_wait_fd2
+	$(PRE)
+	@perl -e '$$|=1; for(0 .. 1000) { print "XXXX-$$$$-$$_\n"; select(undef,undef,undef,0.02); }' | ./$< &> $@.tmp
+	$(POST)
+
 
 $(RESULT_PATH)tc_thread_dump.txt: tc_thread_dump
 	$(PRE)
