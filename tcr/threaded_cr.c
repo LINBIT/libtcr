@@ -1441,8 +1441,12 @@ void tc_waitq_wakeup_all(struct tc_waitq *wq)
 	spin_unlock(&wq->waiters.lock);
 	spin_unlock(&sched.immediate.lock);
 
+	/* If wake is non-zero, we publish that there's something to be done.
+	 * The iwi_immediate() would only wakeup _idle_ workers, so (if there's
+	 * none) the event might get lost; the _iwi_immediate() function makes sure
+	 * the next epoll_wait() call terminates. */
 	if (wake)
-		iwi_immediate(); /* _run_immediate() will wakeup more if necessary */
+		_iwi_immediate();
 }
 
 void tc_waitq_unregister(struct tc_waitq *wq)
