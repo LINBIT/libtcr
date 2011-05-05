@@ -30,7 +30,7 @@ clean-tests:
 
 $(TARGETS): ../tcr/libtcr.a
 
-TESTS_RESULTS	:= 1tc_2events.txt leak_test.txt tc_mutex_test1.txt leak_test2.txt leak_test2.txt parallel_for.txt parallel_for.txt pipelined-server.txt rwlock_test.txt spinlock_test.txt tc_mutex_test2.txt tc_mutex_test3.txt tc_sleep_test.txt tc_thread_dump.txt tc_waitfd-both-dirs.txt tc_waitfd-close.txt tc_wait_fd-roundrobin.txt tc_waitq_test.txt tc_waitq_test2.txt tc_waitq_test3.txt tc_waitq_test5.txt yield_test.txt yield_test1.txt tc_waitfd-both-directions.txt 
+TESTS_RESULTS := $(addsuffix .txt, $(TARGETS))
 #RESULT_PATH	:= /tmp/
 RESULT_PATH	?= ./
 
@@ -86,6 +86,15 @@ $(RESULT_PATH)tc_mutex_test1.txt: tc_mutex_test1
 	$(PRE)
 	@(sleep 0.3 ; echo ) | ./$< &> $@.tmp
 	$(POST)
+
+
+## Some tests shouldn't be run automatically
+$(RESULT_PATH)epoll-no-OUT.txt			\
+$(RESULT_PATH)tc_rwlock_signal_test.txt		\
+$(RESULT_PATH)tc_wait_fd.txt			\
+$(RESULT_PATH)main.txt				\
+$(RESULT_PATH)unix_signal.txt:
+	@echo "  unused $<"
 
 # doesn't test libTCR
 other-tests:
