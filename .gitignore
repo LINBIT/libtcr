@@ -40,4 +40,10 @@ tests/tc_waitq_test5
 tests/unix_signal
 tests/yield_test
 tests/yield_test1
+tests/new_thread_worker_event
+tests/one-thread-two-events
+tests/tc_wait_fd2
+tests/unexpected_event
+tests/waitq_race
+tests/waitq_race2
 tests/*.txt

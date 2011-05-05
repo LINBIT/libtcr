@@ -8,7 +8,8 @@ TARGETS += yield_test1 parallel_for unix_signal tc_thread_dump
 TARGETS += pipelined-server tc_rwlock_signal_test rwlock_test tc_sleep_test
 TARGETS += 1tc_2events tc_wait_fd tc_waitfd-both-directions epoll-no-OUT
 TARGETS += spinlock_test waitq_race tc_mutex_test3 tc_wait_fd2
-TARGETS += new_thread_worker_event
+TARGETS += new_thread_worker_event unexpected_event one-thread-two-events
+TARGETS += one-thread-many-events
 
 SHELL	:= /bin/bash
 
