@@ -65,7 +65,7 @@ char buff[128*1024];
 void starter(void *unused)
 {
 	struct tc_thread *r, *w;
-	int nw;
+	int nw, wrr;
 
 	//	if (socketpair(PF_INET, SOCK_STREAM, IPPROTO_TCP, socks) < 0)
 	if (socketpair(AF_UNIX, SOCK_STREAM, 0, socks) < 0)
@@ -73,16 +73,18 @@ void starter(void *unused)
 	tc_fds[0] = tc_register_fd(socks[0]);
 	tc_fds[1] = tc_register_fd(socks[1]);
 
-	while (write(socks[0], buff, sizeof(buff)) > 0) ;
+	wrr = 0;
+	while ((nw = write(socks[0], buff, sizeof(buff))) > 0) wrr+=nw;
+	 IF printf("wrote %u bytes\n", wrr);
 
 	r=tc_thread_new((void (*)(void *))receiver, tc_fds[0], "recv");
 	w=tc_thread_new((void (*)(void *))writer, tc_fds[0], "sender");
 
-	 IF printf("both blocked currently.\n");
 	tc_sleep(CLOCK_MONOTONIC, 0, 200e6);
+	 IF printf("both blocked currently.\n");
 
-	nw = read(socks[1], buff, sizeof(buff));
 	nw = write(socks[1], buff, sizeof(buff));
+	while ((nw = read(socks[1], buff, sizeof(buff))) > 0) ;
 
 	 IF printf("both unblocked.\n");
 	tc_thread_wait(r);
