@@ -17,8 +17,6 @@ static void waker(void *unused)
 {
 	struct timespec tv;
 
-	LL("DEF %p = waker thread", tc_current());
-
 	tv.tv_sec = 0;
 	while (loops > 0) {
 		tc_sleep(CLOCK_MONOTONIC, 0, 1 + (rand() & 0xff)); /* 30ms */
@@ -46,9 +44,6 @@ static void starter(void *unused)
 	p1 = tc_thread_new(waker, NULL, "waker_valid");
 	p2 = tc_thread_new(waker, NULL, "waker_valid");
 	p3 = tc_thread_new(waker, NULL, "waker_valid");
-
-	LL("DEF %p = looper thread", tc_current());
-	LL("DEF %p = prg wq", &wq);
 
 	while (loops > 0) {
 		/* The event should already be in tc->pending, ie. we should get
@@ -94,7 +89,7 @@ int main(int argc, char *args[])
 	else if (strcmp(args[1], "*") == 0)
 		tc_run(starter, NULL, "test", 4);
 	else
-		TCR_DEBUG_PARSE(args[1]);
+		exit(33);
 
 	return 0;
 }

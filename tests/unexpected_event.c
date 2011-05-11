@@ -53,7 +53,7 @@ int main(int argc, char *args[])
 	if (argc == 1)
 		tc_run(starter, NULL, "test", 0);
 	else
-		TCR_DEBUG_PARSE(args[1]);
+		exit(33);
 
 	return 0;
 }

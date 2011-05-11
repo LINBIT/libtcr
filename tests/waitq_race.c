@@ -12,8 +12,6 @@ static void waker(void *unused)
 {
 	struct timespec tv;
 
-	LL("waker thread");
-
 	tv.tv_sec = 0;
 	while (loops > 0) {
 //		tc_sleep(CLOCK_MONOTONIC, 0, 30); /* 30ms */
@@ -34,8 +32,6 @@ static void starter(void *unused)
 	tc_thread_new(waker, NULL, "waker_valid");
 	tc_thread_new(waker, NULL, "waker_valid");
 
-	LL("looper thread");
-
 	while (loops > 0) {
 		c = 1 + (rand() & 0x7);
 		tc_sleep(CLOCK_MONOTONIC, 0, 1 + (rand() & 0xff));
@@ -55,7 +51,7 @@ int main(int argc, char *args[])
 	if (argc == 1)
 		tc_run(starter, NULL, "test", 4);
 	else
-		TCR_DEBUG_PARSE(args[1]);
+		exit(33);
 
 	return 0;
 }
