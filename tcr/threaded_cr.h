@@ -58,6 +58,8 @@ struct event {
 		struct tc_signal *signal;
 	};
 	enum tc_event_flag flags;
+	unsigned int acked:1;
+	struct event *next_in_stack;
 	struct event_list *el;
 };
 
@@ -250,6 +252,8 @@ extern __thread int _caller_line;
 
 static inline void tc_event_init(struct event *e) {
 	e->el = NULL;
+	e->acked = 0;
+	e->next_in_stack = NULL;
 }
 
 

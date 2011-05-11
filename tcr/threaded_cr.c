@@ -60,7 +60,11 @@ struct tc_thread {
 	atomic_t refcnt;
 	spinlock_t running;
 	enum thread_flags flags; /* flags protected by pending.lock */
+	/* List of events that got signalled */
 	struct event_list pending;
+	/* Stack of events (via next_in_stack) - the topmost is the "current"
+	 * event. Protected via spinlock in pending. */
+	struct event *event_stack;
 	struct event e;  /* Used during start and stop. */
 	int worker_nr;
 #ifdef WAIT_DEBUG
@@ -443,6 +447,7 @@ static void arm_immediate(int op)
 		msg_exit(1, "epoll_ctl failed with %m\n");
 }
 
+/* The event is not on any list. */
 static struct tc_thread *run_or_queue(struct event *e)
 {
 	struct tc_thread *tc = e->tc;
@@ -451,7 +456,9 @@ static struct tc_thread *run_or_queue(struct event *e)
 		return tc;
 
 	spin_lock(&tc->pending.lock);
-	if (tc->flags & TF_RUNNING) {
+	if ((tc->flags & TF_RUNNING) ||
+			(tc->event_stack &&
+			 tc->event_stack != e)) {
 		if (e->flags != EF_SIGNAL)
 			e->tcfd = worker.woken_by_tcfd;
 		_add_event(e, &tc->pending, tc);
@@ -580,7 +587,21 @@ void tc_scheduler(void)
 
 	spin_lock(&tc->pending.lock);
 	if (!CIRCLEQ_EMPTY(&tc->pending.events)) {
-		e = CIRCLEQ_FIRST(&tc->pending.events);
+		if (!tc->event_stack)
+			e = CIRCLEQ_FIRST(&tc->pending.events);
+		else {
+			CIRCLEQ_FOREACH(e, &tc->pending.events, e_chain) {
+				if (e == tc->event_stack)
+					break;
+			}
+
+			if (e == tc->event_stack) {
+			} else {
+				e = CIRCLEQ_FIRST(&tc->pending.events);
+				goto wait_for_another;
+				assert (e->flags != EF_SIGNAL);
+			}
+		}
 		_remove_event(e, &tc->pending);
 		spin_unlock(&tc->pending.lock);
 		if (e->flags == EF_SIGNAL)
@@ -589,6 +610,7 @@ void tc_scheduler(void)
 		worker.woken_by_event = e;
 		return;
 	}
+wait_for_another:
 	tc->flags &= ~TF_RUNNING;
 	spin_unlock(&tc->pending.lock);
 
@@ -955,6 +977,7 @@ static struct tc_thread *_tc_thread_new(void (*func)(void *), void *data, char* 
 	tc_event_init(&tc->e);
 	event_list_init(&tc->pending);
 	tc->worker_nr = ANY_WORKER;
+	tc->event_stack = NULL;
 
 	spin_lock(&sched.lock);
 	LIST_INSERT_HEAD(&sched.threads, tc, tc_chain);
@@ -1342,6 +1365,13 @@ static void _tc_waitq_prepare_to_wait(struct tc_waitq *wq, struct event *e, stru
 	spin_lock(&wq->waiters.lock);
 	_add_event(e, &wq->waiters, tc);
 	spin_unlock(&wq->waiters.lock);
+
+	if (e->flags != EF_SIGNAL) {
+		spin_lock(&tc->pending.lock);
+		e->next_in_stack = tc->event_stack;
+		tc->event_stack = e;
+		spin_unlock(&tc->pending.lock);
+	}
 }
 
 void tc_waitq_prepare_to_wait(struct tc_waitq *wq, struct event *e)
@@ -1353,44 +1383,53 @@ void tc_waitq_prepare_to_wait(struct tc_waitq *wq, struct event *e)
 
 int tc_waitq_finish_wait(struct tc_waitq *wq, struct event *e)
 {
-	int interrupted = (worker.woken_by_event && worker.woken_by_event != e);
+	int was_on_top;
 	struct event_list *el;
+	struct tc_thread *tc = tc_current();
 
-	if (worker.woken_by_event != e) {
-		el = remove_event(e);
 
-		if (el != &wq->waiters && worker.woken_by_event) {
-			/* We got woken up by an signal, but the event we were waiting
-			   for became ready at the same time.*/
-			struct tc_thread *tc = tc_current();
+	/* We need to hold the immediate lock here so that no other thread might
+	 * take the event and put it on the pending queue while we're trying to
+	 * free it. */
+	spin_lock(&sched.immediate.lock);
+	spin_lock(&tc->pending.lock);
+	was_on_top = tc->event_stack == e;
+	if (was_on_top &&
+			(!worker.woken_by_event ||
+			 worker.woken_by_event == e)) {
+		/* Optimal case - the event that got active was the one we expected. */
+		tc->event_stack = e->next_in_stack;
+		spin_unlock(&tc->pending.lock);
 
-#if 0
-			el was exit_waiters of another thread,too
-			if (el != &sched.immediate && el != &tc->pending)
-				msg_exit(1, "Event removed from unknown list\n");
-#endif
+		if (e->el == &sched.immediate)
+			_remove_event(e, e->el);
+		else if (e->el)
+			remove_event(e);
+		spin_unlock(&sched.immediate.lock);
+		worker.woken_by_event = NULL;
 
-			/* Requeue the signal for later delivery */
-			e = worker.woken_by_event;
-			if (e->flags != EF_SIGNAL)
-				msg_exit(1, "Interrupted by an unexpected event (%d)\n", e->flags);
-
-			el = remove_event(e);
-#if 0
-			if (el != &e->signal->wq.waiters)
-				msg_exit(1, "Signal event on unexpected list\n");
-#endif
-
-			spin_lock(&tc->pending.lock);
-			_add_event(e, &tc->pending, tc);
-			spin_unlock(&tc->pending.lock);
-
-			interrupted = 0;
-		}
+		return 0;
 	}
-	worker.woken_by_event = NULL;
+	spin_unlock(&tc->pending.lock);
+	spin_unlock(&sched.immediate.lock);
 
-	return interrupted;
+
+	assert(worker.woken_by_event->flags == EF_SIGNAL);
+	el = e->el ? remove_event(e) : NULL;
+
+	if (was_on_top) {
+		/* We got a signal, but the expected event got active, too.
+		 * Requeue the signal and return OK. */
+		spin_lock(&tc->pending.lock);
+		_add_event(worker.woken_by_event, &tc->pending, tc);
+		worker.woken_by_event = NULL;
+
+		tc->event_stack = e->next_in_stack;
+		spin_unlock(&tc->pending.lock);
+		return 0;
+	}
+
+	return 1;
 }
 
 int tc_waitq_wait(struct tc_waitq *wq)
