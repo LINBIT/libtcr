@@ -528,8 +528,12 @@ search_loop_locked:
 
 static void run_immediate()
 {
-	while (_run_immediate(worker.nr) || _run_immediate(ANY_WORKER))
-		;
+	int did;
+	did = 1;
+	while (did) {
+		did = _run_immediate(worker.nr);
+		did = _run_immediate(ANY_WORKER) || did;
+	}
 }
 
 static void rearm_immediate()
