@@ -146,6 +146,7 @@ static inline char *tc_thread_name(struct tc_thread *tc)
  */
 void tc_thread_pool_new(struct tc_thread_pool *threads, void (*func)(void *), void *data, char* name, int excess);
 enum tc_rv tc_thread_pool_wait(struct tc_thread_pool *threads);
+int tc_thread_worker_nr(struct tc_thread *tc);
 
 /* FDs
    Register each fd you want to wait on. if there are multiple concurrent

@@ -1501,6 +1501,16 @@ void tc_waitq_wakeup_all(struct tc_waitq *wq)
 		_iwi_immediate();
 }
 
+
+int tc_thread_worker_nr(struct tc_thread *tc)
+{
+	if (!tc)
+		tc = tc_current();
+
+	return tc->worker_nr;
+}
+
+
 void tc_waitq_unregister(struct tc_waitq *wq)
 {
 	if (!CIRCLEQ_EMPTY(&wq->waiters.events))

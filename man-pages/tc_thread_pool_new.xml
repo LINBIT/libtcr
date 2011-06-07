@@ -12,6 +12,7 @@
   <refnamediv>
     <refname>tc_thread_pool_new</refname>
     <refname>tc_thread_pool_wait</refname>
+    <refname>tc_thread_num_in_pool</refname>
 
     <refpurpose>libtcr thread bundle functions</refpurpose>
   </refnamediv>
@@ -25,6 +26,9 @@
     </cmdsynopsis>
     <cmdsynopsis>
       <command>enum tc_rv tc_thread_pool_wait(struct tc_thread_pool *<replaceable>threads</replaceable>);</command>
+    </cmdsynopsis>
+    <cmdsynopsis>
+      <command>int tc_thread_worker_nr(struct tc_thread *<replaceable>tc</replaceable>);</command>
     </cmdsynopsis>
 
   </refsynopsisdiv>
@@ -47,6 +51,22 @@
       <option>tc_thread_pool_wait()</option> waits for the termination of all threads 
       of the thread pool <replaceable>threads</replaceable>.
     </para>
+
+    <para>
+      Threads in a pool get numbered within the pool;
+      <option>tc_thread_worker_nr</option> returns the number of the worker
+      thread that this <replaceable>tc</replaceable> is assigned to. This is a
+      constant <option>&gt;=0</option> for the first
+      <replaceable>nr_of_workers</replaceable> within a pool (see
+      <option>tc_run()</option>), or may be initially <option>&lt;0</option>
+      for excessive and unbound threads
+      (ie. started via <option>tc_thread_new()</option>).
+    </para>
+    <para>
+      If <replaceable>tc</replaceable> is <option>NULL</option>, the value for
+      the current tc_thread is returned.
+    </para>
+
 
   </refsection>
   <xi:include href="author.xml" xmlns:xi="http://www.w3.org/2001/XInclude" />
