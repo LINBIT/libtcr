@@ -41,7 +41,8 @@
 
 #define DEFAULT_STACK_SIZE (1024 * 16)
 
-#define ANY_WORKER -1
+#define FREE_WORKER -1
+#define ANY_WORKER -2
 
 enum thread_flags {
 	TF_THREADS =   1 << 0, /* is on threads chain*/
@@ -485,13 +486,18 @@ static int _run_immediate(int nr)
 {
 	struct event *e;
 	struct tc_thread* tc;
+	int wanted;
 
 search_loop:
 	spin_lock(&sched.immediate.lock);
 search_loop_locked:
 	worker.woken_by_tcfd  = NULL;
 	CIRCLEQ_FOREACH(e, &sched.immediate.events, e_chain) {
-		if (!(nr == ANY_WORKER || e->tc->worker_nr == nr))
+		wanted = (nr == ANY_WORKER) ||
+			(e->tc->worker_nr == nr) ||
+			(nr == FREE_WORKER ?
+			 !(e->tc->flags & TF_AFFINE) : 0);
+		if (!wanted)
 			continue;
 		_remove_event(e, &sched.immediate);
 		tc = run_or_queue(e);
@@ -532,6 +538,7 @@ static void run_immediate()
 	did = 1;
 	while (did) {
 		did = _run_immediate(worker.nr);
+		did = _run_immediate(FREE_WORKER) || did;
 		did = _run_immediate(ANY_WORKER) || did;
 	}
 }
@@ -980,7 +987,7 @@ static struct tc_thread *_tc_thread_new(void (*func)(void *), void *data, char* 
 	tc->flags = 0;
 	tc_event_init(&tc->e);
 	event_list_init(&tc->pending);
-	tc->worker_nr = ANY_WORKER;
+	tc->worker_nr = FREE_WORKER;
 	tc->event_stack = NULL;
 
 	spin_lock(&sched.lock);
