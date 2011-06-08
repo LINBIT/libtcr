@@ -9,7 +9,6 @@ AC_CHECK_HEADERS([sys/timerfd.h])
 AC_CHECK_HEADERS([sys/eventfd.h])
 AC_CHECK_FUNCS([timerfd_create])
 AC_CHECK_FUNCS([timerfd_settime])
-AC_CHECK_FUNCS([timerfd_gettime])
 
 AC_ARG_ENABLE([spinlock-debug],
 	      [AS_HELP_STRING([--enable-spinlock-debug],

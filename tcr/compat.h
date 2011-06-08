@@ -36,13 +36,6 @@ static inline int timerfd_settime (int __ufd, int __flags,
 }
 #endif
 
-#ifndef HAVE_TIMERFD_GETTIME
-static inline int timerfd_gettime (int __ufd, struct itimerspec *__otmr)
-{
-	return syscall(SYS_timerfd_gettime, __ufd, __otmr);
-}
-#endif
-
 static inline int tgkill (pid_t tgid, pid_t tid, int sig)
 {
 	return syscall(SYS_tgkill, tgid, tid, sig);
