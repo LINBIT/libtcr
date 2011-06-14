@@ -963,8 +963,13 @@ void tc_run(void (*func)(void *), void *data, char* name, int nr_of_workers)
 	tc_worker_init(0);
 
 	avail_cpu = CPU_COUNT(&sched.available_cpus);
-	if (nr_of_workers == 0)
-		nr_of_workers = avail_cpu;
+	if (nr_of_workers <= 0) {
+		nr_of_workers = avail_cpu + nr_of_workers;
+		if (nr_of_workers < 1)
+			nr_of_workers = 1;
+		else if (nr_of_workers > avail_cpu)
+			nr_of_workers = avail_cpu;
+	}
 	else if (nr_of_workers > avail_cpu)
 		msg("tc_run(): got more workers (%d) than available CPUs (%d)\n",
 				nr_of_workers, avail_cpu);
