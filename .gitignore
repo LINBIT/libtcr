@@ -1,5 +1,6 @@
 man-pages/*.3
 tcr/*.o
+tests/*.o
 *.swp
 
 Makefile
@@ -13,11 +14,14 @@ tcr/config.h
 tcr/config.in
 tcr/libtcr.a
 tests/Makefile
+tests/aio-test
 tests/1tc_2events
+tests/aio-test
 tests/epoll-no-OUT
 tests/leak_test
 tests/leak_test2
 tests/main
+tests/one-thread-many-events
 tests/parallel_for
 tests/pipelined-server
 tests/rwlock_test
