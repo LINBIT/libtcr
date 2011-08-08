@@ -212,12 +212,10 @@ static void stdin_reader(void *data)
 int main(int argc, char** argv)
 {
 	int nr_worker = sysconf(_SC_NPROCESSORS_ONLN);
-	int foreground = 0;
 	int c;
 
 	static struct option options[] = {
 		{"worker-threads", required_argument, 0, 'w'},
-		{"foreground", no_argument, 0, 'f'},
 		{0, 0, 0, 0}
 	};
 
@@ -228,9 +226,6 @@ int main(int argc, char** argv)
 		switch (c) {
 		case 'w':
 			nr_worker = atoi(optarg);
-			break;
-		case 'f':
-			foreground=1;
 			break;
 		}
 	}

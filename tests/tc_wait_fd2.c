@@ -100,12 +100,11 @@ void starter(void *unused)
 {
 	struct tc_thread *s;
 	struct tc_fd *tfd= tc_register_fd(fd);
-	int arc, i;
+	int i;
 	int socks[2];
 
 	printf("\n\n\n\n\n\nPlease press enter in varying intervals.\nq as first character for quit.\n\n");
 
-	arc=0;
 	for(i=0; i<9; i++)
 	{
 		if (socketpair(AF_UNIX, SOCK_STREAM, 0, socks) < 0) return;
