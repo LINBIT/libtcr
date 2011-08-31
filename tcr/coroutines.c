@@ -169,3 +169,20 @@ void cr_return()
 {
 	cr_call(__cr_current->caller);
 }
+
+void *cr_get_sp_from_cr(struct coroutine *cr)
+{
+	void **regs = (void**)&cr->ctx;
+	return regs[
+#if __WORDSIZE == 64
+		0x14
+#else
+		0x12
+#endif
+		];
+}
+
+void *cr_get_stack_from_cr(struct coroutine *cr)
+{
+	return cr->ctx.uc_stack.ss_sp;
+}

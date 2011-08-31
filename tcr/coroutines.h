@@ -51,4 +51,8 @@ static inline struct coroutine *cr_caller(void)
 {
 	return (struct coroutine *)(((void **)__cr_current)[1]);
 }
+
+void *cr_get_sp_from_cr(struct coroutine *cr);
+void *cr_get_stack_from_cr(struct coroutine *cr);
+
 #endif
