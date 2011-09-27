@@ -266,8 +266,8 @@ static struct event *wakeup_all_events(struct events *es)
 	 * get to the next - but by then the pointers are already changed by
 	 * move_to_immediate(). */
 	for (e = es->cqh_first;
-		e != (const void *)es;
-		e = next)
+			e != (const void *)es;
+			e = next)
 	{
 		/* Remember next element; we don't have the pointer anymore after the
 		 * move_to_immediate().  */
@@ -373,8 +373,8 @@ unlock:
 
 static void add_event_cr(struct event *e, __uint32_t ep_events, enum tc_event_flag flags, struct tc_thread *tc)
 {
- 	e->ep_events = ep_events;
- 	e->flags = flags;
+	e->ep_events = ep_events;
+	e->flags = flags;
 
 	spin_lock(&sched.immediate.lock);
 	_add_event(e, &sched.immediate, tc);
@@ -833,7 +833,7 @@ void tc_init()
 	spin_lock_init(&sched.sync_lock);
 	atomic_set(&sched.sync_barrier, 0);
 	CLIST_INIT(&sched.sleeping_workers);
-	
+
 	sched.efd = epoll_create(1);
 	if (sched.efd < 0)
 		msg_exit(1, "epoll_create failed with %m\n");
@@ -1697,8 +1697,8 @@ enum tc_rv tc_rw_w_trylock(struct tc_rw_lock *l)
 	if (rv == RV_OK) {
 		if (atomic_read(&l->readers)) {
 			tc_mutex_unlock(&l->mutex);
-                        rv = RV_FAILED;
-                }
+			rv = RV_FAILED;
+		}
 	}
 	return rv;
 }
