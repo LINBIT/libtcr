@@ -645,6 +645,7 @@ int tc_sched_yield()
 
 	ret = RV_OK;
 	tc_event_init(&e);
+	_tc_event_on_tc_stack(&e, tc);
 	add_event_cr(&e, 0, EF_READY, tc);
 	tc_scheduler();
 	if (worker.woken_by_event != &e)
@@ -655,6 +656,7 @@ int tc_sched_yield()
 	else
 		/* May not be accessed anymore. */
 		worker.woken_by_event = NULL;
+	tc->event_stack = e.next_in_stack;
 
 	return ret;
 }
@@ -991,13 +993,16 @@ enum tc_rv tc_rearm(struct tc_fd *the_tc_fd)
 enum tc_rv _tc_wait_fd(__uint32_t ep_events, struct tc_fd *tcfd, enum tc_event_flag ef)
 {
 	struct event e;
+	struct tc_thread *tc = tc_current();
 	int r;
 
 	if (add_event_fd(&e, ep_events | EPOLLONESHOT, ef, tcfd))
 		return RV_FAILED;
+	_tc_event_on_tc_stack(&e, tc);
 	tc_scheduler();
 	r = (worker.woken_by_event != &e);
 	worker.woken_by_event = NULL;
+	tc->event_stack = e.next_in_stack;
 	if (r) {
 		remove_event_fd(&e, tcfd);
 		return RV_INTR;
