@@ -467,15 +467,25 @@ static struct tc_thread *run_or_queue(struct event *e)
 		return tc;
 
 	spin_lock(&tc->pending.lock);
-	if ((tc->flags & TF_RUNNING) ||
-			(tc->event_stack &&
-			 tc->event_stack != e)) {
+	if (tc->flags & TF_RUNNING)
+		goto queue;
+	if (e->flags == EF_SIGNAL)
+		goto start_thread;
+	if (!tc->event_stack)
+		goto start_thread;
+	if (e == tc->event_stack)
+		goto start_thread;
+
+	{
+queue:
 		if (e->flags != EF_SIGNAL)
 			e->tcfd = worker.woken_by_tcfd;
 		_add_event(e, &tc->pending, tc);
 		spin_unlock(&tc->pending.lock);
 		return NULL;
 	}
+
+start_thread:
 	tc->flags |= TF_RUNNING;
 	spin_unlock(&tc->pending.lock);
 
