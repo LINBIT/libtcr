@@ -371,6 +371,16 @@ unlock:
 	return rv;
 }
 
+inline static void _tc_event_on_tc_stack(struct event *e, struct tc_thread *tc)
+{
+	spin_lock(&tc->pending.lock);
+	e->next_in_stack = tc->event_stack;
+	tc->event_stack = e;
+	assert((long)tc->event_stack != 0xafafafafafafafaf);
+	spin_unlock(&tc->pending.lock);
+}
+
+
 static void add_event_cr(struct event *e, __uint32_t ep_events, enum tc_event_flag flags, struct tc_thread *tc)
 {
 	e->ep_events = ep_events;
@@ -1377,12 +1387,8 @@ static void _tc_waitq_prepare_to_wait(struct tc_waitq *wq, struct event *e, stru
 	_add_event(e, &wq->waiters, tc);
 	spin_unlock(&wq->waiters.lock);
 
-	if (e->flags != EF_SIGNAL) {
-		spin_lock(&tc->pending.lock);
-		e->next_in_stack = tc->event_stack;
-		tc->event_stack = e;
-		spin_unlock(&tc->pending.lock);
-	}
+	if (e->flags != EF_SIGNAL)
+		_tc_event_on_tc_stack(e, tc);
 }
 
 void tc_waitq_prepare_to_wait(struct tc_waitq *wq, struct event *e)
