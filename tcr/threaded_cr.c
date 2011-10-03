@@ -124,6 +124,7 @@ __thread char *_caller_file = "untracked tc_scheduler() call";
 __thread int _caller_line = 0;
 #endif
 
+
 static void _signal_gets_delivered(struct event *e);
 static void signal_cancel_pending();
 static void worker_prepare_sleep();
@@ -131,6 +132,9 @@ static void worker_after_sleep();
 static void store_for_later_free(struct tc_fd *tcfd);
 static void iwi_immediate();
 static int fprintf_stderr(const char *fmt, va_list ap);
+static void _tc_fd_init(struct tc_fd *tcfd, int fd);
+static void _remove_event(struct event *e, struct event_list *el);
+static struct event_list *remove_event(struct event *e);
 
 static struct scheduler sched = {
 	.diagnostic = fprintf_stderr,
@@ -167,6 +171,36 @@ void msg_exit(int code, const char *fmt, ...)
 
 	exit(code);
 }
+
+
+/* Remove an event from its list, checking whether it's on a locked list.
+ * If it's on a locked list, we may not lock again; there's a small race
+ * condition, because the event might get _moved_ to one of the lists while
+ * we're checking ... */
+static inline void remove_event_holding_locks(struct event *e, ...) __attribute__((sentinel));
+static inline void remove_event_holding_locks(struct event *e, ...)
+{
+	va_list va;
+	struct event_list *el;
+
+	if (!e->el)
+		return;
+
+	va_start(va, e);
+	while (1) {
+		el = va_arg(va, struct event_list*);
+		if (!el)
+			break;
+
+		if (e->el == el) {
+			_remove_event(e, e->el);
+			return;
+		}
+	}
+
+	remove_event(e);
+}
+
 
 void msg(const char *fmt, ...)
 {
