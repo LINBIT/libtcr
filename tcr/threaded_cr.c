@@ -1443,7 +1443,6 @@ void tc_waitq_prepare_to_wait(struct tc_waitq *wq, struct event *e)
 int tc_waitq_finish_wait(struct tc_waitq *wq, struct event *e)
 {
 	int was_on_top;
-	struct event_list *el;
 	struct tc_thread *tc = tc_current();
 
 
@@ -1458,37 +1457,36 @@ int tc_waitq_finish_wait(struct tc_waitq *wq, struct event *e)
 			 worker.woken_by_event == e)) {
 		/* Optimal case - the event that got active was the one we expected. */
 		tc->event_stack = e->next_in_stack;
-		spin_unlock(&tc->pending.lock);
+		assert((long)tc->event_stack != 0xafafafafafafafaf);
 
-		if (e->el == &sched.immediate)
-			_remove_event(e, e->el);
-		else if (e->el)
-			remove_event(e);
+		remove_event_holding_locks(e, &tc->pending, &sched.immediate, NULL);
+		spin_unlock(&tc->pending.lock);
 		spin_unlock(&sched.immediate.lock);
 		worker.woken_by_event = NULL;
 
 		return 0;
 	}
-	spin_unlock(&tc->pending.lock);
-	spin_unlock(&sched.immediate.lock);
 
 
+	/* We need to hold the locks here, so that no other thread can put the
+	 * signal event on the immediate queue. */
 	assert(worker.woken_by_event->flags == EF_SIGNAL);
-	el = e->el ? remove_event(e) : NULL;
+	remove_event_holding_locks(e, &tc->pending, &sched.immediate, NULL);
+	remove_event_holding_locks(worker.woken_by_event, &tc->pending, &sched.immediate, NULL);
 
 	if (was_on_top) {
 		/* We got a signal, but the expected event got active, too.
 		 * Requeue the signal and return OK. */
-		spin_lock(&tc->pending.lock);
 		_add_event(worker.woken_by_event, &tc->pending, tc);
 		worker.woken_by_event = NULL;
 
 		tc->event_stack = e->next_in_stack;
-		spin_unlock(&tc->pending.lock);
-		return 0;
+		assert((long)tc->event_stack != 0xafafafafafafafaf);
 	}
 
-	return 1;
+	spin_unlock(&sched.immediate.lock);
+	spin_unlock(&tc->pending.lock);
+	return !was_on_top;
 }
 
 int tc_waitq_wait(struct tc_waitq *wq)
@@ -1604,12 +1602,25 @@ struct tc_signal_sub *tc_signal_subscribe(struct tc_signal *s)
 }
 
 
+/* Signals have one ugly point - they can be called anytime, anywhere, even
+ * while we're trying to unsubscribe.
+ * So we have to hold a number of locks to keep the tc_signal_sub event within
+ * our reach during unsubscribe etc. */
 void tc_signal_unsubscribe_nofree(struct tc_signal *s, struct tc_signal_sub *ss)
 {
+	struct tc_thread *tc = ss->event.tc;
+
+	/* The event might be added to sched.immediate or tc->pending by some
+	 * wakeup_all call while we're waiting for the signals' wq lock, so we have
+	 * to remove it from there first.  */
+	spin_lock(&sched.immediate.lock);
 	spin_lock(&s->wq.waiters.lock);
+	spin_lock(&tc->pending.lock);
 	LIST_REMOVE(ss, se_chain);
+	remove_event_holding_locks(&ss->event, &s->wq.waiters, &tc->pending, &sched.immediate, NULL);
 	spin_unlock(&s->wq.waiters.lock);
-	remove_event(&ss->event);
+	spin_unlock(&tc->pending.lock);
+	spin_unlock(&sched.immediate.lock);
 }
 
 void tc_signal_unsubscribe(struct tc_signal *s, struct tc_signal_sub *ss)
