@@ -77,6 +77,7 @@ int main(int argc, char *args[])
 				exit(1);
 
 			if (!pid) {
+				goto run;
 				execlp(args[0], args[0], "*", NULL);
 				exit(2);
 			}
@@ -86,8 +87,10 @@ int main(int argc, char *args[])
 				exit(3);
 		}
 	}
-	else if (strcmp(args[1], "*") == 0)
-		tc_run(starter, NULL, "test", 4);
+	else if (strcmp(args[1], "*") == 0) {
+run:
+		tc_run(starter, NULL, "test", 0);
+	}
 	else
 		exit(33);
 
