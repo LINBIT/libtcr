@@ -56,7 +56,7 @@ int main(int argc, char *args[])
 #endif
 	int tc=0;
 	if (argc>1) tc=atoi(args[1]);
-	if (!tc) tc=12;
+	if (!tc) tc=sysconf(_SC_NPROCESSORS_ONLN) * 3;
 
 	if (argc>2) max=atoi(args[2]);
 	if (!max) max=1000000;
