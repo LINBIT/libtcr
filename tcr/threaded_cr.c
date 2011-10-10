@@ -864,8 +864,9 @@ found_cpu:
 	event_list_init(&worker.main_thread.pending);
 	worker.main_thread.worker_nr = i;
 	/* LIST_INSERT_HEAD(&sched.threads, &worker.main_thread, tc_chain); */
+	worker.tid = syscall(__NR_gettid);
 
-	rv |= asprintf(&worker.sched_p2.name, "sched_%d", i);
+	rv |= asprintf(&worker.sched_p2.name, "sched_%d", worker.tid);
 	if (rv == -1)
 		msg_exit(1, "allocation in asprintf() failed\n");
 	worker.sched_p2.cr = cr_create(scheduler_part2, NULL, NULL, DEFAULT_STACK_SIZE);
@@ -881,7 +882,6 @@ found_cpu:
 	worker.sched_p2.worker_nr = i;
 	worker.must_sync = 0;
 	worker.is_on_sleeping_list = 0;
-	worker.tid = syscall(__NR_gettid);
 }
 
 static void ignore_signal(int sig)
