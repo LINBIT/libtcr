@@ -235,7 +235,7 @@ static void move_to_immediate(struct event *e)
 }
 
 /* must_hold tcfd->lock */
-static struct event *matching_event(__uint32_t em, struct events *es, __uint32_t *remove_handled_bits)
+static struct event *matching_event(__uint32_t em, struct events *es)
 {
 	struct event *e;
 	struct event *in  = NULL;
@@ -244,8 +244,6 @@ static struct event *matching_event(__uint32_t em, struct events *es, __uint32_t
 
 	CIRCLEQ_FOREACH(e, es, e_chain) {
 		if (em & e->ep_events & EPOLLIN) {
-			if (remove_handled_bits)
-				*remove_handled_bits &= ~EPOLLIN;
 			if (!in)
 				in = e;
 			if (e->tc->worker_nr == worker.nr)
@@ -257,8 +255,6 @@ static struct event *matching_event(__uint32_t em, struct events *es, __uint32_t
 
 		}
 		if (em & e->ep_events & EPOLLOUT) {
-			if (remove_handled_bits)
-				*remove_handled_bits &= ~EPOLLOUT;
 			if (!out)
 				out = e;
 			if (e->tc->worker_nr == worker.nr)
@@ -751,7 +747,7 @@ static void scheduler_part2()
 			atomic_set(&tcfd->err_hup, 1);
 			e = wakeup_all_events(&tcfd->events.events);
 		} else {
-			e = matching_event(epe.events, &tcfd->events.events, &tcfd->ep_events);
+			e = matching_event(epe.events, &tcfd->events.events);
 			/* If there are still waiting threads, we have to make sure that
 			 * the kernels event mask matches the needed one.
 			 *
@@ -765,12 +761,14 @@ static void scheduler_part2()
 			 * around fd-handling code; hoping to have
 			 *     tc_wait_fd() to tc_rearm()
 			 * atomic doesn't work. */
+			/* Even if there was no event waiting, the kernel won't notify us
+			 * again, so we have to remember that we have to be subscribe again. */
+			tcfd->ep_events = 0;
 			/* At least the returned event might be left on the event list;
 			 * so we cannot simply use CIRCLEQ_EMPTY(). */
-			if (tcfd->ep_events &&
-					/* If empty, don't rearm */
-					!CIRCLEQ_EMPTY(&tcfd->events.events) &&
-					/* If only the event we just found left, don't rearm */
+			/* If empty, don't rearm; but: if only one event left, the one we
+			 * just found, don't rearm, as this is being alerted. */
+			if (!CIRCLEQ_EMPTY(&tcfd->events.events) &&
 					(CIRCLEQ_FIRST(&tcfd->events.events) != e ||
 					 CIRCLEQ_LAST(&tcfd->events.events) != e))
 			{
