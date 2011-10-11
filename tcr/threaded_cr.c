@@ -1003,6 +1003,8 @@ enum tc_rv _tc_wait_fd(__uint32_t ep_events, struct tc_fd *tcfd, enum tc_event_f
 	r = (worker.woken_by_event != &e);
 	worker.woken_by_event = NULL;
 	tc->event_stack = e.next_in_stack;
+	/* Have to reprogram either way. */
+	tcfd->ep_events = 0;
 	if (r) {
 		remove_event_fd(&e, tcfd);
 		return RV_INTR;
