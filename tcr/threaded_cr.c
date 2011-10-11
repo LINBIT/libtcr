@@ -1924,13 +1924,17 @@ enum tc_rv tc_sleep(int clockid, time_t sec, long nsec)
 		if (waiting_done(&tw, &ts))
 			break;
 
+		spin_lock(&sched.timer_lock);
 		if (timerfd_reprogram_valid(&ts)) {
+			spin_unlock(&sched.timer_lock);
 			rv = tc_wait_fd(EPOLLIN, &sched.timer_tcfd);
 			if (rv)
 				break;
 
 			read(tc_fd(&sched.timer_tcfd), &c, sizeof(c));
 		}
+		else
+			spin_unlock(&sched.timer_lock);
 
 
 		/* Look which threads can be woken up. */
