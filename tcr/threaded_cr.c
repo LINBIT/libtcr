@@ -1471,7 +1471,7 @@ void tc_waitq_prepare_to_wait(struct tc_waitq *wq, struct event *e)
 
 int tc_waitq_finish_wait(struct tc_waitq *wq, struct event *e)
 {
-	int was_on_top;
+	int was_on_top, was_active;
 	struct tc_thread *tc = tc_current();
 
 
@@ -1500,10 +1500,11 @@ int tc_waitq_finish_wait(struct tc_waitq *wq, struct event *e)
 	/* We need to hold the locks here, so that no other thread can put the
 	 * signal event on the immediate queue. */
 	assert(worker.woken_by_event->flags == EF_SIGNAL);
+	was_active = (e->el == &tc->pending) || (e->el == &sched.immediate);
 	remove_event_holding_locks(e, &tc->pending, &sched.immediate, NULL);
 	remove_event_holding_locks(worker.woken_by_event, &tc->pending, &sched.immediate, NULL);
 
-	if (was_on_top) {
+	if (was_active) {
 		/* We got a signal, but the expected event got active, too.
 		 * Requeue the signal and return OK. */
 		_add_event(worker.woken_by_event, &tc->pending, tc);
@@ -1515,7 +1516,7 @@ int tc_waitq_finish_wait(struct tc_waitq *wq, struct event *e)
 
 	spin_unlock(&sched.immediate.lock);
 	spin_unlock(&tc->pending.lock);
-	return !was_on_top;
+	return !was_active;
 }
 
 int tc_waitq_wait(struct tc_waitq *wq)
