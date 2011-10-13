@@ -663,7 +663,7 @@ int tc_sched_yield()
 
 void tc_scheduler(void)
 {
-	struct event *e;
+	struct event *e, *sig;
 	struct tc_thread *tc = tc_current();
 
 	spin_lock(&tc->pending.lock);
@@ -671,18 +671,23 @@ void tc_scheduler(void)
 		if (!tc->event_stack)
 			e = CIRCLEQ_FIRST(&tc->pending.events);
 		else {
+			sig = NULL;
 			CIRCLEQ_FOREACH(e, &tc->pending.events, e_chain) {
-				if (e == tc->event_stack)
-					break;
+				if (e == tc->event_stack) {
+					goto return_this;
+				}
+				if (e->flags == EF_SIGNAL)
+					sig = e;
 			}
 
-			if (e == tc->event_stack) {
-			} else {
-				e = CIRCLEQ_FIRST(&tc->pending.events);
+			/* Wanted event not found; signal might still be returned. */
+			if (!sig)
 				goto wait_for_another;
-				assert (e->flags != EF_SIGNAL);
-			}
+
+			e = sig;
 		}
+
+return_this:
 		_remove_event(e, &tc->pending);
 		spin_unlock(&tc->pending.lock);
 		if (e->flags == EF_SIGNAL)
@@ -691,6 +696,7 @@ void tc_scheduler(void)
 		worker.woken_by_event = e;
 		return;
 	}
+
 wait_for_another:
 	tc->flags &= ~TF_RUNNING;
 	spin_unlock(&tc->pending.lock);
