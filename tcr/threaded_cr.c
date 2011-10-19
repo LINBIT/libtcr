@@ -91,6 +91,18 @@ enum inter_worker_interrupts {
 	IWI_IMMEDIATE,
 };
 
+
+#define NOT_ON_TIMERLIST ((struct timer_waiter*)-1)
+struct timer_waiter {
+	struct tc_waitq wq;
+	struct timespec abs_end;
+	struct tc_thread *tc;
+	LIST_ENTRY(timer_waiter) tl;
+};
+
+
+LIST_HEAD(timer_list, timer_waiter);
+
 struct scheduler {
 	spinlock_t lock;           /* protects the threads list */
 	struct tc_thread_pool threads;
@@ -105,6 +117,12 @@ struct scheduler {
 	diagnostic_fn diagnostic;
 	int stack_size;            /* stack size for new tc_threads */
 	cpu_set_t available_cpus;    /* CPUs to use for the worker threads */
+
+	atomic_t timer_sleepers;
+	struct tc_fd timer_tcfd;
+	struct tc_mutex timer_mutex;
+	spinlock_t timer_lock;
+	struct timer_list timer_list;
 };
 
 #ifdef WAIT_DEBUG
@@ -874,6 +892,9 @@ static void ignore_signal(int sig)
 
 void tc_init()
 {
+	int fd;
+
+
 	event_list_init(&sched.immediate);
 	LIST_INIT(&sched.threads);
 	spin_lock_init(&sched.lock);
@@ -889,6 +910,14 @@ void tc_init()
 	sched.efd = epoll_create(1);
 	if (sched.efd < 0)
 		msg_exit(1, "epoll_create failed with %m\n");
+
+	spin_lock_init(&sched.timer_lock);
+	atomic_set(&sched.timer_sleepers, 0);
+	tc_mutex_init(&sched.timer_mutex);
+	fd = timerfd_create(CLOCK_MONOTONIC, TFD_CLOEXEC ); //| TFD_NONBLOCK);
+	if (fd == -1)
+		msg_exit(1, "timerfd_create with %m\n");
+	_tc_fd_init(&sched.timer_tcfd, fd);
 
 	sched.immediate_fd = eventfd(0, 0);
 	if (sched.immediate_fd == -1)
@@ -1680,35 +1709,252 @@ void tc_signal_fire(struct tc_signal *s)
 	tc_waitq_wakeup_all(&s->wq);
 }
 
+
+inline static int compare_ts_times(struct timespec *ts1, struct timespec *ts2)
+{
+	if (ts1->tv_sec < ts2->tv_sec)
+		return -1;
+	if (ts1->tv_sec > ts2->tv_sec)
+		return +1;
+
+	if (ts1->tv_nsec < ts2->tv_nsec)
+		return -1;
+	if (ts1->tv_nsec > ts2->tv_nsec)
+		return +1;
+
+	return 0;
+}
+
+
+static void remove_from_timer_list_wakeup(struct timer_waiter *to_remove)
+{
+	struct timer_waiter *tw;
+
+	spin_lock(&sched.timer_lock);
+
+	if (LIST_NEXT(to_remove, tl) != NOT_ON_TIMERLIST) {
+		LIST_REMOVE(to_remove, tl);
+	}
+
+	/* It might be nicer to use the longest-sleeping thread as new master,
+	 * but we'd have to traverse the list or store the last element ...
+	 * TODO */
+	tw = LIST_FIRST(&sched.timer_list);
+	if (tw)
+		tc_waitq_wakeup_all(&tw->wq);
+
+	spin_unlock(&sched.timer_lock);
+
+	return;
+}
+
+
+static inline int timer_delta(struct timespec *dest, struct timespec *later, struct timespec *earlier)
+{
+	dest->tv_sec  = later->tv_sec  - earlier->tv_sec;
+	dest->tv_nsec = later->tv_nsec - earlier->tv_nsec;
+	while (dest->tv_nsec < 0) {
+		dest->tv_sec--;
+		dest->tv_nsec += 1e9;
+	}
+	if (dest->tv_sec < 0 ||
+			(dest->tv_sec == 0 && dest->tv_nsec <= 0))
+		return 1;
+	return 0;
+}
+
+
+/* Should hold timer_lock */
+static int timerfd_reprogram_valid(struct timespec *ts)
+{
+	struct itimerspec its;
+	struct timespec ts2, delta;
+	int make_abs;
+
+
+	if (!ts) {
+		ts = &ts2;
+		clock_gettime(CLOCK_MONOTONIC, ts);
+	}
+
+	if (timer_delta(&delta, & LIST_FIRST(&sched.timer_list)->abs_end, ts))
+		return 0;
+
+	/* If there's enough difference, just use the absolute time.
+	 * If it get's too near, use the relative delta. */
+	make_abs = delta.tv_sec > 0 ? TFD_TIMER_ABSTIME : 0;
+
+	its.it_value = make_abs ? LIST_FIRST(&sched.timer_list)->abs_end : delta;
+	its.it_interval.tv_sec = 0;
+	its.it_interval.tv_nsec = 0;
+
+	if (timerfd_settime(tc_fd(&sched.timer_tcfd), make_abs, &its, NULL))
+		msg_exit(1, "timerfd_settime failed with %m\n");
+	return 1;
+}
+
+
+static void insert_into_timer_list(struct timer_waiter *to_insert)
+{
+	struct timer_waiter *cur, *prev;
+
+	spin_lock(&sched.timer_lock);
+	cur = LIST_FIRST(&sched.timer_list);
+	prev = NULL;
+
+	while (cur) {
+		if (compare_ts_times(&to_insert->abs_end, &cur->abs_end) < 0)
+			goto put_here;
+
+		prev = cur;
+		assert(cur != LIST_NEXT(cur, tl));
+		cur = LIST_NEXT(cur, tl);
+	}
+
+	/* Nothing left, append. */
+	if (prev)
+		LIST_INSERT_AFTER(prev, to_insert, tl);
+	else
+		LIST_INSERT_HEAD(&sched.timer_list, to_insert, tl);
+	goto check_for_reprogram;
+
+put_here:
+	LIST_INSERT_BEFORE(cur, to_insert, tl);
+
+check_for_reprogram:
+	if (LIST_FIRST(&sched.timer_list) == to_insert) {
+		/* Re-program the soonest wakeup */
+		timerfd_reprogram_valid(NULL);
+	}
+
+	spin_unlock(&sched.timer_lock);
+	return;
+}
+
+
+static inline int waiting_done(struct timer_waiter *tw, struct timespec *ts)
+{
+	if (LIST_NEXT(tw, tl) == NOT_ON_TIMERLIST)
+		return 1;
+
+	clock_gettime(CLOCK_MONOTONIC, ts);
+	return  compare_ts_times(ts, &tw->abs_end) >= 0;
+}
+
+
+
+/* Each tc_thread sorts its timer_waiter into the scheduler.timer_list; one of
+ * them becomes the master, and wakes up all other threads as necessary, until
+ * it is done, and another one becomes master.  */
 enum tc_rv tc_sleep(int clockid, time_t sec, long nsec)
 {
-	struct itimerspec ts;
-	struct tc_fd *tcfd;
+	struct timespec ts;
 	enum tc_rv rv;
-	int fd;
+	struct timer_waiter tw;
+	struct timer_waiter *two, *two2;
+	int have_lock, wait_done;
+	uint64_t c;
 
-	ts.it_value.tv_sec = sec;
-	ts.it_value.tv_nsec = nsec;
-	ts.it_interval.tv_sec = 0;
-	ts.it_interval.tv_nsec = 0;
 
-	fd = timerfd_create(clockid, 0);
-	if (fd == -1)
-		msg_exit(1, "timerfd_create with %m\n");
+	/* We'd need another timerfd for CLOCK_REALTIME ... and then there are the
+	 * issues about NTP etc., so only CLOCK_MONOTONIC is supported right now.
+	 * */
+	assert(clockid == CLOCK_MONOTONIC);
 
-	tcfd = tc_register_fd(fd);
-	if (!tcfd || timerfd_settime(fd, 0, &ts, NULL))
-		rv = RV_FAILED;
-	else
-		rv = tc_wait_fd(EPOLLIN, tcfd);
-	/* If we got interrupted by a signal, another thread might see/use the
-	 * tc_fd - so we have to clean up. */
-	_tc_fd_unregister(tcfd, rv == RV_INTR);
-	/* The close must happen after the unregister call.
-	 * If it's before the kernel might return the same fd to another thread
-	 * which would fail because the fd gets removed from the efd set in
-	 * _tc_fd_unregister(). */
-	close(fd);
+	have_lock = 0;
+	wait_done = 0;
+
+
+	/* Do that as soon as possible ... as if a few cycles would make
+	 * a difference ;) */
+	clock_gettime(CLOCK_MONOTONIC, &tw.abs_end);
+	tw.abs_end.tv_sec += sec;
+	tw.abs_end.tv_nsec += nsec;
+	tw.tc = tc_current();
+	tc_waitq_init(&tw.wq);
+	LIST_NEXT(&tw, tl) = NOT_ON_TIMERLIST;
+	while (tw.abs_end.tv_nsec > 1e9) {
+		tw.abs_end.tv_nsec -= 1e9;
+		tw.abs_end.tv_sec  +=   1;
+	}
+
+	c = atomic_inc(&sched.timer_sleepers);
+
+	/* For very small timeouts we might not even get into the scheduler.
+	 * The contract with the previous version of tc_sleep() was to _always_
+	 * activate the scheduler, so that tc_sleep() in a while(1) loop wouldn't
+	 * keep the binary from exit()ing.
+	 * So we have to force that ... */
+	rv = tc_sched_yield();
+	if (rv)
+		goto quit;
+
+
+	insert_into_timer_list(&tw);
+
+	have_lock = 0;
+	wait_done = 0;
+	rv = RV_OK;
+
+
+	/* Don't botch CALLER */
+	__tc_wait_event(&tw.wq, ({
+			 wait_done = waiting_done(&tw, &ts);
+			 if (!wait_done)
+				 have_lock = !tc_mutex_trylock(&sched.timer_mutex);
+
+			 wait_done || have_lock;
+			 }), rv);
+	if (rv || wait_done)
+		goto quit;
+
+
+	assert(have_lock);
+
+	/* master */
+	while (1) {
+		if (waiting_done(&tw, &ts))
+			break;
+
+		if (timerfd_reprogram_valid(&ts)) {
+			rv = tc_wait_fd(EPOLLIN, &sched.timer_tcfd);
+			if (rv)
+				break;
+
+			read(tc_fd(&sched.timer_tcfd), &c, sizeof(c));
+		}
+
+
+		/* Look which threads can be woken up. */
+		spin_lock(&sched.timer_lock);
+		clock_gettime(CLOCK_MONOTONIC, &ts);
+		two = LIST_FIRST(&sched.timer_list);
+		while (two) {
+			if (compare_ts_times(&ts, &two->abs_end) < 0)
+				break;
+
+			two2 = LIST_NEXT(two, tl);
+			assert(two != two2);
+			LIST_REMOVE(two, tl);
+
+			LIST_NEXT(two, tl) = NOT_ON_TIMERLIST;
+			tc_waitq_wakeup_all(&two->wq);
+
+			two = two2;
+		}
+		spin_unlock(&sched.timer_lock);
+
+		/* Restart the loop, perhaps this one is finished. */
+	}
+
+
+quit:
+	if (have_lock)
+		tc_mutex_unlock(&sched.timer_mutex);
+	/* Tell another one to take over. */
+	remove_from_timer_list_wakeup(&tw);
+
+	atomic_dec(&sched.timer_sleepers);
 	return rv;
 }
 

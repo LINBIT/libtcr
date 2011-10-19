@@ -1,5 +1,5 @@
 override CFLAGS += @CFLAGS@ -I..
-override LDFLAGS += -L../tcr -ltcr -lpthread
+override LDFLAGS += -L../tcr -ltcr -lpthread -lrt
 
 TARGETS := main tc_mutex_test1 tc_mutex_test2 tc_waitq_test tc_waitq_test2
 TARGETS += tc_waitfd-both-dirs tc_waitfd-close tc_wait_fd-roundrobin
