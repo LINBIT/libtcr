@@ -42,6 +42,13 @@ static inline int tgkill (pid_t tgid, pid_t tid, int sig)
 }
 
 
+#ifndef TFD_CLOEXEC
+#define TFD_CLOEXEC 02000000
+#endif
+#ifndef TFD_TIMER_ABSTIME
+#define TFD_TIMER_ABSTIME (1 << 0)
+#endif
+
 
 #ifndef HAVE_MAP_STACK
 #define MAP_STACK       0x20000
