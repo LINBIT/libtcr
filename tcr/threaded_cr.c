@@ -986,6 +986,12 @@ void tc_run(void (*func)(void *), void *data, char* name, int nr_of_workers)
 }
 
 
+int tc_thread_count(void)
+{
+	return sched.nr_of_workers;
+}
+
+
 enum tc_rv tc_rearm(struct tc_fd *the_tc_fd)
 {
 	int rv;

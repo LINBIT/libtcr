@@ -116,6 +116,7 @@ void tc_init();
 void tc_worker_init(int i);
 void tc_scheduler();
 int tc_sched_yield();
+int tc_thread_count(void);
 
 typedef int (*diagnostic_fn)(const char *format, va_list ap);
 void tc_set_diagnostic_fn(diagnostic_fn f);
