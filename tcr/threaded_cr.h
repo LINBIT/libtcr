@@ -104,6 +104,15 @@ struct tc_rw_lock {
 struct tc_thread;
 LIST_HEAD(tc_thread_pool, tc_thread);
 
+/* When a thread gets created, quits, and another one is created, the second
+ * one might have the same (struct tc_thread*) as the first. To protect against
+ * waiting for the wrong thread we provide an additional ID that callers
+ * can use for verification - see tc_thread_new_ref() and tc_thread_wait_ref(). */
+struct tc_thread_ref {
+	struct tc_thread *thr;
+	int id;
+};
+
 /* Threaded coroutines
  tc_run() is the most convenient way to initialize the threaded coroutines
  system. Alternatively use tc_init(), start a number of pthreads, and
@@ -130,7 +139,15 @@ void tc_set_stack_size(int size);
    keep in mind to free resources (esp. registered fds and mutexes)
  */
 struct tc_thread *tc_thread_new(void (*func)(void *), void *data, char* name);
-enum tc_rv tc_thread_wait(struct tc_thread *tc);
+struct tc_thread_ref tc_thread_new_ref(void (*func)(void *), void *data, char* name);
+enum tc_rv tc_thread_wait_ref(struct tc_thread_ref *tc_r);
+static inline enum tc_rv tc_thread_wait(struct tc_thread *tc)
+{
+	struct tc_thread_ref r;
+	r.thr = tc;
+	r.id = 0;
+	return tc_thread_wait_ref(&r);
+}
 void tc_die();
 static inline struct tc_thread *tc_current()
 {

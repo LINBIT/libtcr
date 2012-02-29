@@ -68,6 +68,8 @@ struct tc_thread {
 	struct event *event_stack;
 	struct event e;  /* Used during start and stop. */
 	int worker_nr;
+	int id;
+
 #ifdef WAIT_DEBUG
 	char *sleep_file;
 	int sleep_line;
@@ -117,6 +119,7 @@ struct scheduler {
 	diagnostic_fn diagnostic;
 	int stack_size;            /* stack size for new tc_threads */
 	cpu_set_t available_cpus;    /* CPUs to use for the worker threads */
+	int last_thread_id;
 
 	atomic_t timer_sleepers;
 	struct tc_fd timer_tcfd;
@@ -967,6 +970,7 @@ void tc_run(void (*func)(void *), void *data, char* name, int nr_of_workers)
 				nr_of_workers, avail_cpu);
 
 	sched.nr_of_workers = nr_of_workers;
+	sched.last_thread_id = rand();
 
 	tc_main = tc_thread_new(func, data, name);
 
@@ -1092,6 +1096,10 @@ static struct tc_thread *_tc_thread_new(void (*func)(void *), void *data, char* 
 
 	spin_lock(&sched.lock);
 	LIST_INSERT_HEAD(&sched.threads, tc, tc_chain);
+	sched.last_thread_id++;
+	if (sched.last_thread_id == 0)
+		sched.last_thread_id = 1;
+	tc->id = sched.last_thread_id;
 	spin_unlock(&sched.lock);
 
 	return tc;
@@ -1113,6 +1121,16 @@ struct tc_thread *tc_thread_new(void (*func)(void *), void *data, char* name)
 
 	return tc;
 }
+
+struct tc_thread_ref tc_thread_new_ref(void (*func)(void *), void *data, char* name)
+{
+	struct tc_thread_ref t;
+
+	t.thr = tc_thread_new(func, data, name);
+	t.id = t.thr->id;
+	return t;
+}
+
 
 void tc_thread_pool_new(struct tc_thread_pool *threads, void (*func)(void *), void *data, char* name, int excess)
 {
@@ -1442,18 +1460,29 @@ static enum tc_rv _thread_valid(struct tc_thread *look_for)
 	return RV_THREAD_NA;
 }
 
-enum tc_rv tc_thread_wait(struct tc_thread *wait_for)
+enum tc_rv tc_thread_wait_ref(struct tc_thread_ref *ref)
 {
+	struct tc_thread *wait_for;
 	struct event e;
 	enum tc_rv rv;
 
+	if (!ref->thr)
+		return RV_OK;
+
+	wait_for = ref->thr;
 	tc_event_init(&e);
 	spin_lock(&sched.lock);
 	rv = _thread_valid(wait_for);  /* wait_for might have already exited */
-	if (rv == RV_OK)
-		tc_waitq_prepare_to_wait(&wait_for->exit_waiters, &e);
+	if (rv == RV_OK) {
+		if (ref->id && wait_for->id != ref->id)
+			rv = RV_THREAD_NA;
+		else {
+			tc_waitq_prepare_to_wait(&wait_for->exit_waiters, &e);
+		}
+	}
 
 	spin_unlock(&sched.lock);
+	ref->thr = NULL;
 	if (rv == RV_THREAD_NA)
 		return rv;
 
