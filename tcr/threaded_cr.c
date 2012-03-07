@@ -1408,6 +1408,7 @@ enum tc_rv tc_mutex_lock(struct tc_mutex *m)
 		} else
 			return RV_OK;
 	} else {
+		worker.woken_by_event = &e;
 		tc_waitq_finish_wait(&m->wq, &e);
 		return RV_OK;
 	}
