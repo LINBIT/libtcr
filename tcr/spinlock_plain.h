@@ -13,6 +13,11 @@ static inline void spin_lock(spinlock_t *l)
 		;
 }
 
+static inline int spin_trylock(spinlock_t *l)
+{
+	return __sync_bool_compare_and_swap(&l->lock, 0, 1);
+}
+
 static inline void spin_unlock(spinlock_t *l)
 {
 	__sync_lock_release(&l->lock);
