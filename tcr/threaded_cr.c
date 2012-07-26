@@ -197,8 +197,8 @@ static void _remove_event(struct event *e, struct event_list *el);
 static struct event_list *remove_event(struct event *e);
 
 __thread struct tc_domain *tc_this_pthread_domain = NULL;
-/* I don't want to make "sched" visible globally, but  */
-#define sched tc_this_pthread_domain
+/* I don't want to make "tc_this_pthread_domain" visible globally, but  */
+#define tc_this_pthread_domain tc_this_pthread_domain
 
 static struct tc_thread *tc_main;
 static __thread struct worker_struct worker;
@@ -227,12 +227,12 @@ static int fprintf_stderr(const char *fmt, va_list ap)
 
 void tc_set_diagnostic_fn(diagnostic_fn f)
 {
-	sched->diagnostic = f;
+	tc_this_pthread_domain->diagnostic = f;
 }
 
 void tc_set_stack_size(int s)
 {
-	sched->stack_size = s;
+	tc_this_pthread_domain->stack_size = s;
 }
 
 void msg_exit(int code, const char *fmt, ...) __attribute__ ((__noreturn__));
@@ -241,7 +241,7 @@ void msg_exit(int code, const char *fmt, ...)
 	va_list ap;
 
 	va_start(ap, fmt);
-	sched->diagnostic(fmt, ap);
+	tc_this_pthread_domain->diagnostic(fmt, ap);
 	va_end(ap);
 
 	exit(code);
@@ -282,7 +282,7 @@ void msg(const char *fmt, ...)
 	va_list ap;
 
 	va_start(ap, fmt);
-	sched->diagnostic(fmt, ap);
+	tc_this_pthread_domain->diagnostic(fmt, ap);
 	va_end(ap);
 }
 
@@ -302,11 +302,11 @@ static __uint32_t calc_epoll_event_mask(struct events *es)
 /* must_hold tcfd->lock */
 static void move_to_immediate(struct event *e)
 {
-	spin_lock(&sched->immediate.lock);
+	spin_lock(&tc_this_pthread_domain->immediate.lock);
 	CIRCLEQ_REMOVE(&e->el->events, e, e_chain);
-	e->el = &sched->immediate;
-	CIRCLEQ_INSERT_TAIL(&sched->immediate.events, e, e_chain);
-	spin_unlock(&sched->immediate.lock);
+	e->el = &tc_this_pthread_domain->immediate;
+	CIRCLEQ_INSERT_TAIL(&tc_this_pthread_domain->immediate.events, e, e_chain);
+	spin_unlock(&tc_this_pthread_domain->immediate.lock);
 }
 
 /* must_hold tcfd->lock */
@@ -397,7 +397,7 @@ static struct event *wakeup_all_events(struct events *es)
 static inline int tcfd_epoll_ctl(int op, struct tc_fd *tcfd, struct epoll_event *epe)
 {
 	epe->data.ptr = tcfd;
-	return epoll_ctl(sched->efd, op, tcfd->fd, epe);
+	return epoll_ctl(tc_this_pthread_domain->efd, op, tcfd->fd, epe);
 }
 
 
@@ -497,9 +497,9 @@ static void add_event_cr(struct event *e, __uint32_t ep_events, enum tc_event_fl
 	e->ep_events = ep_events;
 	e->flags = flags;
 
-	spin_lock(&sched->immediate.lock);
-	_add_event(e, &sched->immediate, tc);
-	spin_unlock(&sched->immediate.lock);
+	spin_lock(&tc_this_pthread_domain->immediate.lock);
+	_add_event(e, &tc_this_pthread_domain->immediate, tc);
+	spin_unlock(&tc_this_pthread_domain->immediate.lock);
 }
 
 void remove_event_fd(struct event *e, struct tc_fd *tcfd)
@@ -565,7 +565,7 @@ static void arm_aio_efd(int op)
 	epe.data.u64 = IWI_ASYNC_IO;
 	epe.events = EPOLLIN | EPOLLONESHOT;
 
-	if (epoll_ctl(sched->efd, op, sched->aio_eventfd, &epe))
+	if (epoll_ctl(tc_this_pthread_domain->efd, op, tc_this_pthread_domain->aio_eventfd, &epe))
 		msg_exit(1, "epoll_ctl for AIO arm failed with %m\n");
 }
 
@@ -576,7 +576,7 @@ static void arm_immediate(int op)
 	epe.data.ptr = (void*)IWI_IMMEDIATE;
 	epe.events = EPOLLIN | EPOLLONESHOT;
 
-	if (epoll_ctl(sched->efd, op, sched->immediate_fd, &epe))
+	if (epoll_ctl(tc_this_pthread_domain->efd, op, tc_this_pthread_domain->immediate_fd, &epe))
 		msg_exit(1, "epoll_ctl for immediate arm failed with %m\n");
 }
 
@@ -631,17 +631,17 @@ static int _run_immediate(int nr)
 	int wanted;
 
 search_loop:
-	spin_lock(&sched->immediate.lock);
+	spin_lock(&tc_this_pthread_domain->immediate.lock);
 search_loop_locked:
 	worker.woken_by_tcfd  = NULL;
-	CIRCLEQ_FOREACH(e, &sched->immediate.events, e_chain) {
+	CIRCLEQ_FOREACH(e, &tc_this_pthread_domain->immediate.events, e_chain) {
 		wanted = (nr == ANY_WORKER) ||
 			(e->tc->worker_nr == nr) ||
 			(nr == FREE_WORKER ?
 			 !(e->tc->flags & TF_AFFINE) : 0);
 		if (!wanted)
 			continue;
-		_remove_event(e, &sched->immediate);
+		_remove_event(e, &tc_this_pthread_domain->immediate);
 		tc = run_or_queue(e);
 		if (!tc) {
 			/* We don't know what the queue looks like, so start at the
@@ -652,16 +652,16 @@ search_loop_locked:
 		case EF_PRIORITY:
 		case EF_READY:
 		case EF_SIGNAL:
-			if (!CIRCLEQ_EMPTY(&sched->immediate.events))
+			if (!CIRCLEQ_EMPTY(&tc_this_pthread_domain->immediate.events))
 				iwi_immediate(); /* More work available, wakeup an worker */
-			spin_unlock(&sched->immediate.lock);
+			spin_unlock(&tc_this_pthread_domain->immediate.lock);
 			switch_to(tc);
 			return 1;
 		case EF_EXITING:
-			spin_unlock(&sched->immediate.lock);
+			spin_unlock(&tc_this_pthread_domain->immediate.lock);
 			tc_thread_free(e->tc);
 			/* We cannot simply take the first or next element of
-			 * sched->immediate - we've given up the lock, and so the queue
+			 * tc_this_pthread_domain->immediate - we've given up the lock, and so the queue
 			 * might be *anything*. We have to start afresh. */
 			goto search_loop;
 			continue;
@@ -669,7 +669,7 @@ search_loop_locked:
 			msg_exit(1, "Wrong e->flags in immediate list\n");
 		}
 	}
-	spin_unlock(&sched->immediate.lock);
+	spin_unlock(&tc_this_pthread_domain->immediate.lock);
 
 	return 0;
 }
@@ -689,7 +689,7 @@ static void rearm_immediate()
 {
 	eventfd_t c;
 
-	if (read(sched->immediate_fd, &c, sizeof(c)) != sizeof(c))
+	if (read(tc_this_pthread_domain->immediate_fd, &c, sizeof(c)) != sizeof(c))
 		msg_exit(1, "read() failed with %m\n");
 
 	arm_immediate(EPOLL_CTL_MOD);
@@ -699,7 +699,7 @@ static void _iwi_immediate()
 {
 	eventfd_t c = 1;
 
-	if (write(sched->immediate_fd, &c, sizeof(c)) != sizeof(c))
+	if (write(tc_this_pthread_domain->immediate_fd, &c, sizeof(c)) != sizeof(c))
 		msg_exit(1, "write() failed with: %m\n");
 }
 
@@ -707,8 +707,9 @@ static void iwi_immediate()
 {
 	/* Some other worker should please process the queued immediate events. */
 
-	if (!CLIST_EMPTY(&sched->sleeping_workers))
+	if (!CLIST_EMPTY(&tc_this_pthread_domain->sleeping_workers)) {
 		_iwi_immediate();
+	}
 }
 
 int tc_sched_yield()
@@ -796,13 +797,13 @@ static inline void handle_aio_event()
 	struct tc_waitq *wq;
 
 
-	if (read(sched->aio_eventfd, &count, sizeof(count)) != sizeof(count))
+	if (read(tc_this_pthread_domain->aio_eventfd, &count, sizeof(count)) != sizeof(count))
 		msg_exit(1, "read() failed with %m\n");
 
 	ts.tv_sec = ts.tv_nsec = 0;
 	while (count > 0) {
 		e2read = count > AIOs_AT_ONCE ? AIOs_AT_ONCE : count;
-		rv = io_getevents(sched->aio_ctx, e2read, AIOs_AT_ONCE, ioe, &ts);
+		rv = io_getevents(tc_this_pthread_domain->aio_ctx, e2read, AIOs_AT_ONCE, ioe, &ts);
 		if (rv < 0)
 			msg_exit(1, "io_getevents failed with %m\n");
 
@@ -850,7 +851,7 @@ static void scheduler_part2()
 
 		worker_prepare_sleep();
 		while (1) {
-			er = epoll_wait(sched->efd, &epe, 1, -1);
+			er = epoll_wait(tc_this_pthread_domain->efd, &epe, 1, -1);
 			if (er >= 0)
 				break; /* There's something to handle */
 			if (errno == EINTR) {
@@ -941,7 +942,7 @@ static void scheduler_part2()
 				   semantics. Need to remove an FD with an HUP or ERR
 				   condition immediately. Since this might be done by
 				   all workers concurrently, ignore failures here.*/
-				epoll_ctl(sched->efd, EPOLL_CTL_DEL, tcfd->fd, NULL);
+				epoll_ctl(tc_this_pthread_domain->efd, EPOLL_CTL_DEL, tcfd->fd, NULL);
 			}
 
 			spin_unlock(&tcfd->events.lock);
@@ -1002,7 +1003,7 @@ found_cpu:
 	worker.main_thread.flags = TF_RUNNING;
 	event_list_init(&worker.main_thread.pending);
 	worker.main_thread.worker_nr = i;
-	/* LIST_INSERT_HEAD(&sched->threads, &worker.main_thread, tc_chain); */
+	/* LIST_INSERT_HEAD(&tc_this_pthread_domain->threads, &worker.main_thread, tc_chain); */
 	worker.tid = syscall(__NR_gettid);
 
 	rv |= asprintf(&worker.sched_p2.name, "sched_%d", worker.tid);
@@ -1021,9 +1022,9 @@ found_cpu:
 	worker.sched_p2.worker_nr = i;
 	worker.must_sync = 0;
 	worker.is_on_sleeping_list = 0;
-	spin_lock(&sched->worker_list_lock);
-	LIST_INSERT_HEAD(&sched->worker_list, &worker, worker_chain);
-	spin_unlock(&sched->worker_list_lock);
+	spin_lock(&tc_this_pthread_domain->worker_list_lock);
+	LIST_INSERT_HEAD(&tc_this_pthread_domain->worker_list, &worker, worker_chain);
+	spin_unlock(&tc_this_pthread_domain->worker_list_lock);
 
 }
 
@@ -1038,34 +1039,34 @@ void tc_init()
 	int fd;
 
 
-	event_list_init(&sched->immediate);
-	LIST_INIT(&sched->threads);
-	spin_lock_init(&sched->lock);
+	event_list_init(&tc_this_pthread_domain->immediate);
+	LIST_INIT(&tc_this_pthread_domain->threads);
+	spin_lock_init(&tc_this_pthread_domain->lock);
 	if (SIGNAL_FOR_WAKEUP > SIGRTMAX)
 		msg_exit(1, "libTCR: bad value for SIGNAL_FOR_WAKEUP\n");
 
 	signal(SIGNAL_FOR_WAKEUP, ignore_signal);
 
-	spin_lock_init(&sched->sync_lock);
-	atomic_set(&sched->sync_barrier, 0);
-	CLIST_INIT(&sched->sleeping_workers);
+	spin_lock_init(&tc_this_pthread_domain->sync_lock);
+	atomic_set(&tc_this_pthread_domain->sync_barrier, 0);
+	CLIST_INIT(&tc_this_pthread_domain->sleeping_workers);
 
-	sched->efd = epoll_create(1);
-	if (sched->efd < 0)
+	tc_this_pthread_domain->efd = epoll_create(1);
+	if (tc_this_pthread_domain->efd < 0)
 		msg_exit(1, "epoll_create failed with %m\n");
 
-	spin_lock_init(&sched->timer_lock);
-	atomic_set(&sched->timer_sleepers, 0);
-	tc_mutex_init(&sched->timer_mutex);
+	spin_lock_init(&tc_this_pthread_domain->timer_lock);
+	atomic_set(&tc_this_pthread_domain->timer_sleepers, 0);
+	tc_mutex_init(&tc_this_pthread_domain->timer_mutex);
 	fd = timerfd_create(CLOCK_MONOTONIC, TFD_CLOEXEC ); //| TFD_NONBLOCK);
 	if (fd == -1)
 		msg_exit(1, "timerfd_create with %m\n");
-	_tc_fd_init(&sched->timer_tcfd, fd);
+	_tc_fd_init(&tc_this_pthread_domain->timer_tcfd, fd);
 
-	sched->immediate_fd = eventfd(0, 0);
-	sched->aio_eventfd = eventfd(0, 0);
-	if (sched->immediate_fd == -1 ||
-			sched->aio_eventfd == -1)
+	tc_this_pthread_domain->immediate_fd = eventfd(0, 0);
+	tc_this_pthread_domain->aio_eventfd = eventfd(0, 0);
+	if (tc_this_pthread_domain->immediate_fd == -1 ||
+			tc_this_pthread_domain->aio_eventfd == -1)
 		msg_exit(1, "eventfd() failed with: %m\n");
 
 	if (CPU_COUNT(&common.available_cpus) == 0) {
@@ -1073,13 +1074,13 @@ void tc_init()
 			msg_exit(1, "sched_getaffinity: %m\n");
 	}
 
-	spin_lock_init(&sched->worker_list_lock);
-	LIST_INIT(&sched->worker_list);
+	spin_lock_init(&tc_this_pthread_domain->worker_list_lock);
+	LIST_INIT(&tc_this_pthread_domain->worker_list);
 
 	arm_immediate(EPOLL_CTL_ADD);
 	arm_aio_efd(EPOLL_CTL_ADD);
 
-	sched->aio_ctx = NULL;
+	tc_this_pthread_domain->aio_ctx = NULL;
 }
 
 
@@ -1087,17 +1088,17 @@ static void tc_aio_init(void)
 {
 	int max;
 
-	max = sched->nr_of_workers * 4;
+	max = tc_this_pthread_domain->nr_of_workers * 4;
 	if (max > 256)
 		max = 256;
-	if (io_setup(max, &sched->aio_ctx))
+	if (io_setup(max, &tc_this_pthread_domain->aio_ctx))
 		msg_exit(1, "io_setup failed with %m\n");
 }
 
 
 static void *worker_pthread(void *_s)
 {
-	sched = _s;
+	tc_this_pthread_domain = _s;
 
 	tc_worker_init();
 	tc_thread_wait(tc_main); /* calls tc_scheduler() */
@@ -1182,13 +1183,13 @@ struct tc_domain *tc_run(void (*func)(void *), void *data, char* name, int nr_of
 	for (i = 1; i < nr_of_workers; i++)
 		pthread_join(tc_this_pthread_domain->pthreads[i], NULL);
 
-	return sched;
+	return tc_this_pthread_domain;
 }
 
 
 int tc_thread_count(void)
 {
-	return sched->nr_of_workers;
+	return tc_this_pthread_domain->nr_of_workers;
 }
 
 
@@ -1230,11 +1231,11 @@ void tc_die()
 
 	/* printf(" (%d) exiting: %s\n", worker.nr, tc->name); */
 
-	spin_lock(&sched->lock);
+	spin_lock(&tc_this_pthread_domain->lock);
 	LIST_REMOVE(tc, tc_chain);
 	if (tc->flags & TF_THREADS)
 		LIST_REMOVE(tc, threads_chain);
-	spin_unlock(&sched->lock);
+	spin_unlock(&tc_this_pthread_domain->lock);
 
 	tc_aio_wait();
 
@@ -1279,7 +1280,7 @@ static struct tc_thread *_tc_thread_new(void (*func)(void *), void *data, char* 
 
 	memset(tc, 0, sizeof(*tc));
 
-	tc->cr = cr_create(tc_setup, func, data, sched->stack_size);
+	tc->cr = cr_create(tc_setup, func, data, tc_this_pthread_domain->stack_size);
 	if (!tc->cr)
 		goto fail3;
 
@@ -1298,13 +1299,13 @@ static struct tc_thread *_tc_thread_new(void (*func)(void *), void *data, char* 
 	for(i=0; i<TC_AIO_REQUESTS_PER_TC_THREAD; i++)
 		tc_aio_data_init(tc->aio + i);
 
-	spin_lock(&sched->lock);
-	LIST_INSERT_HEAD(&sched->threads, tc, tc_chain);
-	sched->last_thread_id++;
-	if (sched->last_thread_id == 0)
-		sched->last_thread_id = 1;
-	tc->id = sched->last_thread_id;
-	spin_unlock(&sched->lock);
+	spin_lock(&tc_this_pthread_domain->lock);
+	LIST_INSERT_HEAD(&tc_this_pthread_domain->threads, tc, tc_chain);
+	tc_this_pthread_domain->last_thread_id++;
+	if (tc_this_pthread_domain->last_thread_id == 0)
+		tc_this_pthread_domain->last_thread_id = 1;
+	tc->id = tc_this_pthread_domain->last_thread_id;
+	spin_unlock(&tc_this_pthread_domain->lock);
 
 	return tc;
 
@@ -1345,20 +1346,20 @@ void tc_thread_pool_new_in_domain(struct tc_thread_pool *threads, void (*func)(v
 	WITH_OTHER_DOMAIN_BEGIN(domain);
 
 	LIST_INIT(threads);
-	for (i = 0; i < sched->nr_of_workers + excess; i++) {
+	for (i = 0; i < tc_this_pthread_domain->nr_of_workers + excess; i++) {
 		if (asprintf(&ename, name, i) == -1)
 			msg_exit(1, "allocation in asprintf() failed\n");
 		tc = _tc_thread_new(func, data, ename);
 		if (!tc)
 			continue;
 		tc->flags |= TF_THREADS | TF_FREE_NAME;
-		if (i < sched->nr_of_workers) {
+		if (i < tc_this_pthread_domain->nr_of_workers) {
 			tc->worker_nr = i;
 			tc->flags |= TF_AFFINE;
 		}
-		spin_lock(&sched->lock);
+		spin_lock(&tc_this_pthread_domain->lock);
 		LIST_INSERT_HEAD(threads, tc, threads_chain);
-		spin_unlock(&sched->lock);
+		spin_unlock(&tc_this_pthread_domain->lock);
 		add_event_cr(&tc->e, 0, EF_READY, tc);
 	}
 	iwi_immediate();
@@ -1368,7 +1369,7 @@ void tc_thread_pool_new_in_domain(struct tc_thread_pool *threads, void (*func)(v
 
 void tc_thread_pool_new(struct tc_thread_pool *threads, void (*func)(void *), void *data, char* name, int excess)
 {
-	tc_thread_pool_new_in_domain(threads, func, data, name, excess, sched);
+	tc_thread_pool_new_in_domain(threads, func, data, name, excess, tc_this_pthread_domain);
 }
 
 enum tc_rv tc_thread_pool_wait(struct tc_thread_pool *threads)
@@ -1376,9 +1377,9 @@ enum tc_rv tc_thread_pool_wait(struct tc_thread_pool *threads)
 	struct tc_thread *tc;
 	enum tc_rv r, rv = RV_THREAD_NA;
 
-	spin_lock(&sched->lock);
+	spin_lock(&tc_this_pthread_domain->lock);
 	while ((tc = LIST_FIRST(threads))) {
-		spin_unlock(&sched->lock);
+		spin_unlock(&tc_this_pthread_domain->lock);
 		r = tc_thread_wait(tc);
 		switch(r) {
 		case RV_INTR:
@@ -1390,9 +1391,9 @@ enum tc_rv tc_thread_pool_wait(struct tc_thread_pool *threads)
 		case RV_THREAD_NA:
 			break;
 		}
-		spin_lock(&sched->lock);
+		spin_lock(&tc_this_pthread_domain->lock);
 	}
-	spin_unlock(&sched->lock);
+	spin_unlock(&tc_this_pthread_domain->lock);
 
 	return RV_OK;
 }
@@ -1466,7 +1467,7 @@ static void _tc_fd_unregister(struct tc_fd *tcfd, int free_later)
 
 	/* Make this tcfd not appear again in the epoll_wait loop.
 	 * We're ignoring the return value of epoll_ctl() here on intention. */
-	epoll_ctl(sched->efd, EPOLL_CTL_DEL, tcfd->fd, &epe);
+	epoll_ctl(tc_this_pthread_domain->efd, EPOLL_CTL_DEL, tcfd->fd, &epe);
 
 	spin_lock(&tcfd->events.lock);
 	/* Make the fd invalid for further accesses */
@@ -1490,8 +1491,8 @@ static void _process_free_list(spinlock_t *lock_to_free)
 {
 	struct tc_fd *cur,*next;
 
-	cur = sched->free_list;
-	sched->free_list = NULL;
+	cur = tc_this_pthread_domain->free_list;
+	tc_this_pthread_domain->free_list = NULL;
 	spin_unlock(lock_to_free);
 
 	while (cur) {
@@ -1503,12 +1504,12 @@ static void _process_free_list(spinlock_t *lock_to_free)
 
 static void worker_prepare_sleep()
 {
-	spin_lock(&sched->sync_lock);
+	spin_lock(&tc_this_pthread_domain->sync_lock);
 	if (!worker.is_on_sleeping_list) {
-		CLIST_INSERT_AFTER(&sched->sleeping_workers, &worker.sleeping_chain);
+		CLIST_INSERT_AFTER(&tc_this_pthread_domain->sleeping_workers, &worker.sleeping_chain);
 	}
 	worker.is_on_sleeping_list = 1;
-	spin_unlock(&sched->sync_lock);
+	spin_unlock(&tc_this_pthread_domain->sync_lock);
 }
 
 static void worker_after_sleep()
@@ -1517,7 +1518,7 @@ static void worker_after_sleep()
 	int have_lock;
 
 	/* These two checks have to made atomically w.r.t. sync_lock. */
-	spin_lock(&sched->sync_lock);
+	spin_lock(&tc_this_pthread_domain->sync_lock);
 	have_lock = 1;
 	if (worker.is_on_sleeping_list)
 	{
@@ -1526,16 +1527,16 @@ static void worker_after_sleep()
 	}
 	if (worker.must_sync) {
 		worker.must_sync = 0;
-		new = atomic_dec(&sched->sync_barrier);
+		new = atomic_dec(&tc_this_pthread_domain->sync_barrier);
 		if (new == 0)
 		{
-			_process_free_list(&sched->sync_lock);
+			_process_free_list(&tc_this_pthread_domain->sync_lock);
 			have_lock = 0;
 		}
 	}
 
 	if (have_lock)
-		spin_unlock(&sched->sync_lock);
+		spin_unlock(&tc_this_pthread_domain->sync_lock);
 }
 
 
@@ -1559,17 +1560,17 @@ static void store_for_later_free(struct tc_fd *tcfd)
 	struct worker_struct *w;
 
 
-	spin_lock(&sched->sync_lock);
-	tcfd->free_list_next = sched->free_list;
-	sched->free_list = tcfd;
+	spin_lock(&tc_this_pthread_domain->sync_lock);
+	tcfd->free_list_next = tc_this_pthread_domain->free_list;
+	tc_this_pthread_domain->free_list = tcfd;
 
-	if (CLIST_EMPTY(&sched->sleeping_workers)) {
+	if (CLIST_EMPTY(&tc_this_pthread_domain->sleeping_workers)) {
 		/* No new sleepers. */
 	}
 	else {
 		/* Process the sleeper-list. */
-		list = sched->sleeping_workers.cl_next;
-		while (list != &sched->sleeping_workers) {
+		list = tc_this_pthread_domain->sleeping_workers.cl_next;
+		while (list != &tc_this_pthread_domain->sleeping_workers) {
 			w = container_of(list, struct worker_struct, sleeping_chain);
 			/* When a synchronize_world() is run while a thread waits for the lock
 			 * in worker_prepare_sleep(), then the worker would be on the
@@ -1578,21 +1579,21 @@ static void store_for_later_free(struct tc_fd *tcfd)
 			 * leak_test2), then this would try to get the thread again ... */
 			if (!w->must_sync) {
 				w->must_sync = 1;
-				atomic_inc(&sched->sync_barrier);
+				atomic_inc(&tc_this_pthread_domain->sync_barrier);
 				w->is_on_sleeping_list = 0;
 				tgkill(getpid(), w->tid, SIGNAL_FOR_WAKEUP);
 			}
 			list = list->cl_next;
 		}
-		CLIST_INIT(&sched->sleeping_workers);
+		CLIST_INIT(&tc_this_pthread_domain->sleeping_workers);
 	}
 
-	if (atomic_read(&sched->sync_barrier)) {
-		spin_unlock(&sched->sync_lock);
+	if (atomic_read(&tc_this_pthread_domain->sync_barrier)) {
+		spin_unlock(&tc_this_pthread_domain->sync_lock);
 		/* See comment in worker_after_sleep */
 	}
 	else
-		_process_free_list(&sched->sync_lock);
+		_process_free_list(&tc_this_pthread_domain->sync_lock);
 }
 
 
@@ -1666,7 +1667,7 @@ static enum tc_rv _thread_valid(struct tc_thread *look_for)
 {
 	struct tc_thread *tc;
 
-	LIST_FOREACH(tc, &sched->threads, tc_chain) {
+	LIST_FOREACH(tc, &tc_this_pthread_domain->threads, tc_chain) {
 		if (tc == look_for)
 			return RV_OK;
 	}
@@ -1684,7 +1685,7 @@ enum tc_rv tc_thread_wait_ref(struct tc_thread_ref *ref)
 
 	wait_for = ref->thr;
 	tc_event_init(&e);
-	spin_lock(&sched->lock);
+	spin_lock(&tc_this_pthread_domain->lock);
 	rv = _thread_valid(wait_for);  /* wait_for might have already exited */
 	if (rv == RV_OK) {
 		if (ref->id && wait_for->id != ref->id)
@@ -1694,7 +1695,7 @@ enum tc_rv tc_thread_wait_ref(struct tc_thread_ref *ref)
 		}
 	}
 
-	spin_unlock(&sched->lock);
+	spin_unlock(&tc_this_pthread_domain->lock);
 	ref->thr = NULL;
 	if (rv == RV_THREAD_NA)
 		return rv;
@@ -1739,7 +1740,7 @@ int tc_waitq_finish_wait(struct tc_waitq *wq, struct event *e)
 	/* We need to hold the immediate lock here so that no other thread might
 	 * take the event and put it on the pending queue while we're trying to
 	 * free it. */
-	spin_lock(&sched->immediate.lock);
+	spin_lock(&tc_this_pthread_domain->immediate.lock);
 	spin_lock(&tc->pending.lock);
 	was_on_top = tc->event_stack == e;
 	if (was_on_top &&
@@ -1749,9 +1750,9 @@ int tc_waitq_finish_wait(struct tc_waitq *wq, struct event *e)
 		tc->event_stack = e->next_in_stack;
 		assert((long)tc->event_stack != 0xafafafafafafafaf);
 
-		remove_event_holding_locks(e, &tc->pending, &sched->immediate, NULL);
+		remove_event_holding_locks(e, &tc->pending, &tc_this_pthread_domain->immediate, NULL);
 		spin_unlock(&tc->pending.lock);
-		spin_unlock(&sched->immediate.lock);
+		spin_unlock(&tc_this_pthread_domain->immediate.lock);
 		worker.woken_by_event = NULL;
 
 		return 0;
@@ -1761,9 +1762,9 @@ int tc_waitq_finish_wait(struct tc_waitq *wq, struct event *e)
 	/* We need to hold the locks here, so that no other thread can put the
 	 * signal event on the immediate queue. */
 	assert(worker.woken_by_event->flags == EF_SIGNAL);
-	was_active = (e->el == &tc->pending) || (e->el == &sched->immediate);
-	remove_event_holding_locks(e, &tc->pending, &sched->immediate, NULL);
-	remove_event_holding_locks(worker.woken_by_event, &tc->pending, &sched->immediate, NULL);
+	was_active = (e->el == &tc->pending) || (e->el == &tc_this_pthread_domain->immediate);
+	remove_event_holding_locks(e, &tc->pending, &tc_this_pthread_domain->immediate, NULL);
+	remove_event_holding_locks(worker.woken_by_event, &tc->pending, &tc_this_pthread_domain->immediate, NULL);
 
 	if (was_active) {
 		/* We got a signal, but the expected event got active, too.
@@ -1775,7 +1776,7 @@ int tc_waitq_finish_wait(struct tc_waitq *wq, struct event *e)
 		assert((long)tc->event_stack != 0xafafafafafafafaf);
 	}
 
-	spin_unlock(&sched->immediate.lock);
+	spin_unlock(&tc_this_pthread_domain->immediate.lock);
 	spin_unlock(&tc->pending.lock);
 	return !was_active;
 }
@@ -1797,17 +1798,17 @@ void tc_waitq_wakeup_one(struct tc_waitq *wq)
 	int wake = 0;
 	struct event *e;
 
-	spin_lock(&sched->immediate.lock);
+	spin_lock(&tc_this_pthread_domain->immediate.lock);
 	spin_lock(&wq->waiters.lock);
 	if (!CIRCLEQ_EMPTY(&wq->waiters.events)) {
 		e = CIRCLEQ_FIRST(&wq->waiters.events);
 		CIRCLEQ_REMOVE(&wq->waiters.events, e, e_chain);
-		e->el = &sched->immediate;
-		CIRCLEQ_INSERT_HEAD(&sched->immediate.events, e, e_chain);
+		e->el = &tc_this_pthread_domain->immediate;
+		CIRCLEQ_INSERT_HEAD(&tc_this_pthread_domain->immediate.events, e, e_chain);
 		wake = 1;
 	}
 	spin_unlock(&wq->waiters.lock);
-	spin_unlock(&sched->immediate.lock);
+	spin_unlock(&tc_this_pthread_domain->immediate.lock);
 
 	if (wake)
 		iwi_immediate();
@@ -1818,17 +1819,17 @@ void tc_waitq_wakeup_all(struct tc_waitq *wq)
 	struct event *e;
 	int wake = 0;
 
-	spin_lock(&sched->immediate.lock);
+	spin_lock(&tc_this_pthread_domain->immediate.lock);
 	spin_lock(&wq->waiters.lock);
 	while(!CIRCLEQ_EMPTY(&wq->waiters.events)) {
 		e = CIRCLEQ_FIRST(&wq->waiters.events);
 		CIRCLEQ_REMOVE(&wq->waiters.events, e, e_chain);
-		e->el = &sched->immediate;
-		CIRCLEQ_INSERT_HEAD(&sched->immediate.events, e, e_chain);
+		e->el = &tc_this_pthread_domain->immediate;
+		CIRCLEQ_INSERT_HEAD(&tc_this_pthread_domain->immediate.events, e, e_chain);
 		wake++;
 	}
 	spin_unlock(&wq->waiters.lock);
-	spin_unlock(&sched->immediate.lock);
+	spin_unlock(&tc_this_pthread_domain->immediate.lock);
 
 	/* If wake is non-zero, we publish that there's something to be done.
 	 * The iwi_immediate() would only wakeup _idle_ workers, so (if there's
@@ -1901,17 +1902,17 @@ void tc_signal_unsubscribe_nofree(struct tc_signal *s, struct tc_signal_sub *ss)
 {
 	struct tc_thread *tc = ss->event.tc;
 
-	/* The event might be added to sched->immediate or tc->pending by some
+	/* The event might be added to tc_this_pthread_domain->immediate or tc->pending by some
 	 * wakeup_all call while we're waiting for the signals' wq lock, so we have
 	 * to remove it from there first.  */
-	spin_lock(&sched->immediate.lock);
+	spin_lock(&tc_this_pthread_domain->immediate.lock);
 	spin_lock(&s->wq.waiters.lock);
 	spin_lock(&tc->pending.lock);
 	LIST_REMOVE(ss, se_chain);
-	remove_event_holding_locks(&ss->event, &s->wq.waiters, &tc->pending, &sched->immediate, NULL);
+	remove_event_holding_locks(&ss->event, &s->wq.waiters, &tc->pending, &tc_this_pthread_domain->immediate, NULL);
 	spin_unlock(&s->wq.waiters.lock);
 	spin_unlock(&tc->pending.lock);
-	spin_unlock(&sched->immediate.lock);
+	spin_unlock(&tc_this_pthread_domain->immediate.lock);
 }
 
 void tc_signal_unsubscribe(struct tc_signal *s, struct tc_signal_sub *ss)
@@ -1937,12 +1938,12 @@ static void signal_cancel_pending()
 	struct event *e;
 	struct tc_thread *tc = tc_current();
 
-	spin_lock(&sched->immediate.lock);
-	CIRCLEQ_FOREACH(e, &sched->immediate.events, e_chain) {
+	spin_lock(&tc_this_pthread_domain->immediate.lock);
+	CIRCLEQ_FOREACH(e, &tc_this_pthread_domain->immediate.events, e_chain) {
 		if (e->tc == tc && e->flags == EF_SIGNAL)
-			_cancel_signal(e, &sched->immediate);
+			_cancel_signal(e, &tc_this_pthread_domain->immediate);
 	}
-	spin_unlock(&sched->immediate.lock);
+	spin_unlock(&tc_this_pthread_domain->immediate.lock);
 
 	spin_lock(&tc->pending.lock);
 	CIRCLEQ_FOREACH(e, &tc->pending.events, e_chain) {
@@ -1976,7 +1977,7 @@ void tc_renice_domain(struct tc_domain *sched, int new_nice)
 {
 	struct worker_struct *w;
 	spin_lock(&sched->worker_list_lock);
-	LIST_FOREACH(w, &sched->worker_list, worker_chain) {
+	LIST_FOREACH(w, &tc_this_pthread_domain->worker_list, worker_chain) {
 		/* syscall within spinlock isn't nice --
 		 * but that should be fast enough. */
 		setpriority(PRIO_PROCESS, w->tid, new_nice);
@@ -2005,7 +2006,7 @@ static void remove_from_timer_list_wakeup(struct timer_waiter *to_remove)
 {
 	struct timer_waiter *tw;
 
-	spin_lock(&sched->timer_lock);
+	spin_lock(&tc_this_pthread_domain->timer_lock);
 
 	if (LIST_NEXT(to_remove, tl) != NOT_ON_TIMERLIST) {
 		LIST_REMOVE(to_remove, tl);
@@ -2014,11 +2015,11 @@ static void remove_from_timer_list_wakeup(struct timer_waiter *to_remove)
 	/* It might be nicer to use the longest-sleeping thread as new master,
 	 * but we'd have to traverse the list or store the last element ...
 	 * TODO */
-	tw = LIST_FIRST(&sched->timer_list);
+	tw = LIST_FIRST(&tc_this_pthread_domain->timer_list);
 	if (tw)
 		tc_waitq_wakeup_all(&tw->wq);
 
-	spin_unlock(&sched->timer_lock);
+	spin_unlock(&tc_this_pthread_domain->timer_lock);
 
 	return;
 }
@@ -2052,18 +2053,18 @@ static int timerfd_reprogram_valid(struct timespec *ts)
 		clock_gettime(CLOCK_MONOTONIC, ts);
 	}
 
-	if (timer_delta(&delta, & LIST_FIRST(&sched->timer_list)->abs_end, ts))
+	if (timer_delta(&delta, & LIST_FIRST(&tc_this_pthread_domain->timer_list)->abs_end, ts))
 		return 0;
 
 	/* If there's enough difference, just use the absolute time.
 	 * If it get's too near, use the relative delta. */
 	make_abs = delta.tv_sec > 0 ? TFD_TIMER_ABSTIME : 0;
 
-	its.it_value = make_abs ? LIST_FIRST(&sched->timer_list)->abs_end : delta;
+	its.it_value = make_abs ? LIST_FIRST(&tc_this_pthread_domain->timer_list)->abs_end : delta;
 	its.it_interval.tv_sec = 0;
 	its.it_interval.tv_nsec = 0;
 
-	if (timerfd_settime(tc_fd(&sched->timer_tcfd), make_abs, &its, NULL))
+	if (timerfd_settime(tc_fd(&tc_this_pthread_domain->timer_tcfd), make_abs, &its, NULL))
 		msg_exit(1, "timerfd_settime failed with %m\n");
 	return 1;
 }
@@ -2073,8 +2074,8 @@ static void insert_into_timer_list(struct timer_waiter *to_insert)
 {
 	struct timer_waiter *cur, *prev;
 
-	spin_lock(&sched->timer_lock);
-	cur = LIST_FIRST(&sched->timer_list);
+	spin_lock(&tc_this_pthread_domain->timer_lock);
+	cur = LIST_FIRST(&tc_this_pthread_domain->timer_list);
 	prev = NULL;
 
 	while (cur) {
@@ -2090,19 +2091,19 @@ static void insert_into_timer_list(struct timer_waiter *to_insert)
 	if (prev)
 		LIST_INSERT_AFTER(prev, to_insert, tl);
 	else
-		LIST_INSERT_HEAD(&sched->timer_list, to_insert, tl);
+		LIST_INSERT_HEAD(&tc_this_pthread_domain->timer_list, to_insert, tl);
 	goto check_for_reprogram;
 
 put_here:
 	LIST_INSERT_BEFORE(cur, to_insert, tl);
 
 check_for_reprogram:
-	if (LIST_FIRST(&sched->timer_list) == to_insert) {
+	if (LIST_FIRST(&tc_this_pthread_domain->timer_list) == to_insert) {
 		/* Re-program the soonest wakeup */
 		timerfd_reprogram_valid(NULL);
 	}
 
-	spin_unlock(&sched->timer_lock);
+	spin_unlock(&tc_this_pthread_domain->timer_lock);
 	return;
 }
 
@@ -2153,7 +2154,7 @@ enum tc_rv tc_sleep(int clockid, time_t sec, long nsec)
 		tw.abs_end.tv_sec  +=   1;
 	}
 
-	c = atomic_inc(&sched->timer_sleepers);
+	c = atomic_inc(&tc_this_pthread_domain->timer_sleepers);
 
 	/* For very small timeouts we might not even get into the scheduler.
 	 * The contract with the previous version of tc_sleep() was to _always_
@@ -2176,7 +2177,7 @@ enum tc_rv tc_sleep(int clockid, time_t sec, long nsec)
 	__tc_wait_event(&tw.wq, ({
 			 wait_done = waiting_done(&tw, &ts);
 			 if (!wait_done)
-				 have_lock = !tc_mutex_trylock(&sched->timer_mutex);
+				 have_lock = !tc_mutex_trylock(&tc_this_pthread_domain->timer_mutex);
 
 			 wait_done || have_lock;
 			 }), rv);
@@ -2191,23 +2192,23 @@ enum tc_rv tc_sleep(int clockid, time_t sec, long nsec)
 		if (waiting_done(&tw, &ts))
 			break;
 
-		spin_lock(&sched->timer_lock);
+		spin_lock(&tc_this_pthread_domain->timer_lock);
 		if (timerfd_reprogram_valid(&ts)) {
-			spin_unlock(&sched->timer_lock);
-			rv = tc_wait_fd(EPOLLIN, &sched->timer_tcfd);
+			spin_unlock(&tc_this_pthread_domain->timer_lock);
+			rv = tc_wait_fd(EPOLLIN, &tc_this_pthread_domain->timer_tcfd);
 			if (rv)
 				break;
 
-			read(tc_fd(&sched->timer_tcfd), &c, sizeof(c));
+			read(tc_fd(&tc_this_pthread_domain->timer_tcfd), &c, sizeof(c));
 		}
 		else
-			spin_unlock(&sched->timer_lock);
+			spin_unlock(&tc_this_pthread_domain->timer_lock);
 
 
 		/* Look which threads can be woken up. */
-		spin_lock(&sched->timer_lock);
+		spin_lock(&tc_this_pthread_domain->timer_lock);
 		clock_gettime(CLOCK_MONOTONIC, &ts);
-		two = LIST_FIRST(&sched->timer_list);
+		two = LIST_FIRST(&tc_this_pthread_domain->timer_list);
 		while (two) {
 			if (compare_ts_times(&ts, &two->abs_end) < 0)
 				break;
@@ -2221,7 +2222,7 @@ enum tc_rv tc_sleep(int clockid, time_t sec, long nsec)
 
 			two = two2;
 		}
-		spin_unlock(&sched->timer_lock);
+		spin_unlock(&tc_this_pthread_domain->timer_lock);
 
 		/* Restart the loop, perhaps this one is finished. */
 	}
@@ -2229,11 +2230,11 @@ enum tc_rv tc_sleep(int clockid, time_t sec, long nsec)
 
 quit:
 	if (have_lock)
-		tc_mutex_unlock(&sched->timer_mutex);
+		tc_mutex_unlock(&tc_this_pthread_domain->timer_mutex);
 	/* Tell another one to take over. */
 	remove_from_timer_list_wakeup(&tw);
 
-	atomic_dec(&sched->timer_sleepers);
+	atomic_dec(&tc_this_pthread_domain->timer_sleepers);
 	return rv;
 }
 
@@ -2399,10 +2400,10 @@ inline static int _tc_aio_submit_keep_notify(struct tc_aio_data *ad)
 	ad->cb.data = ad;
 	ad->res = 0;
 	ad->res2 = 0;
-	io_set_eventfd(&ad->cb, sched->aio_eventfd);
+	io_set_eventfd(&ad->cb, tc_this_pthread_domain->aio_eventfd);
 
 	cb = &ad->cb;
-	rv = io_submit(sched->aio_ctx, 1, &cb);
+	rv = io_submit(tc_this_pthread_domain->aio_ctx, 1, &cb);
 
 	if (rv == 1)
 		return 0;
@@ -2617,7 +2618,7 @@ void tc_dump_threads(void)
 {
 	struct tc_thread *t;
 
-	LIST_FOREACH(t, &sched->threads, tc_chain) {
+	LIST_FOREACH(t, &tc_this_pthread_domain->threads, tc_chain) {
 		if (t->sleep_line)
 			msg("Thread %s(%p) stack at %p, waiting at %s:%d\n", t->name, t, cr_get_stack_from_cr(t->cr), t->sleep_file, t->sleep_line);
 		else
