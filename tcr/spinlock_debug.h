@@ -22,7 +22,20 @@ static inline void __spin_lock(spinlock_t *l, char* holder, char* file, int line
 	while (!__sync_bool_compare_and_swap(&l->lock, 0, 1)) {
 		i++;
 		if ((i & ((1<<12)-1)) == 0) /* every 4096 spins, call sched_yield() */
+		{
+#ifdef WAIT_DEBUG
+			extern __thread char *_caller_file;
+			extern __thread int _caller_line;
+			/* these are per-pthread, not per-tc-thread. */
+			char *_clr = _caller_file;
+			int lnr = _caller_line;
+#endif
 			sched_yield();
+#ifdef WAIT_DEBUG
+			_caller_file = _clr;
+			_caller_line = lnr;
+#endif
+		}
 
 		if ((i>>22) & 1) {/* eventually abort the program. */
 			fprintf(stderr, "lock held by: \"%s\" in %s:%d\n",
