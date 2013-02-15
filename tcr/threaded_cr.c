@@ -1713,31 +1713,30 @@ static enum tc_rv _thread_valid(struct tc_domain *domain, struct tc_thread *look
 	return RV_THREAD_NA;
 }
 
-enum tc_rv tc_thread_wait_ref(struct tc_thread_ref *ref)
+enum tc_rv tc_thread_wait_ref(struct tc_thread_ref *_ref)
 {
-	struct tc_thread *wait_for;
+	struct tc_thread_ref ref = *_ref;
 	struct tc_domain *d;
 	struct event e;
 	enum tc_rv rv;
 
-	if (!ref->thr)
+	if (!ref.thr)
 		return RV_OK;
 
-	wait_for = ref->thr;
-	d = wait_for->domain;
+	d = ref.thr->domain;
 	tc_event_init(&e);
 	spin_lock(&d->lock);
-	rv = _thread_valid(d, wait_for);  /* wait_for might have already exited */
+	rv = _thread_valid(d, ref.thr);  /* might have already exited */
 	if (rv == RV_OK) {
-		if (ref->id && wait_for->id != ref->id)
+		if (ref.id && ref.thr->id != ref.id)
 			rv = RV_THREAD_NA;
 		else {
-			tc_waitq_prepare_to_wait(&wait_for->exit_waiters, &e);
+			tc_waitq_prepare_to_wait(&ref.thr->exit_waiters, &e);
 		}
 	}
 
 	spin_unlock(&d->lock);
-	ref->thr = NULL;
+	ref.thr = NULL;
 	if (rv == RV_THREAD_NA)
 		return rv;
 
