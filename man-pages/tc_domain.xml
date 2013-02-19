@@ -1,0 +1,80 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE refentry PUBLIC "-//OASIS//DTD DocBook XML V4.5//EN"
+"http://www.oasis-open.org/docbook/xml/4.5/docbookx.dtd">
+<refentry>
+  <xi:include href="product.xml" xmlns:xi="http://www.w3.org/2001/XInclude" />
+  <refmeta>
+    <refentrytitle>tc_domain</refentrytitle>
+    <manvolnum>3</manvolnum>
+    <refmiscinfo class="manual">libtcr documentation</refmiscinfo>
+  </refmeta>
+
+  <refnamediv>
+    <refname>tc_domain</refname>
+    <refname>tc_new_domain</refname>
+    <refname>tc_renice_domain</refname>
+    <refname>tc_thread_new_ref_in_domain</refname>
+    <refname>tc_thread_pool_new_in_domain</refname>
+
+    <refpurpose>libtcr domains</refpurpose>
+  </refnamediv>
+
+  <refsynopsisdiv>
+    <cmdsynopsis>
+      <command>#include &lt;tc/threaded_cr.h&gt;</command>
+    </cmdsynopsis>
+    <cmdsynopsis>
+      <command>struct tc_domain * tc_new_domain( int <replaceable>nr_of_workers</replaceable>);</command>
+    </cmdsynopsis>
+    <cmdsynopsis>
+      <command>void tc_renice_domain( struct tc_domain *<replaceable>domain</replaceable>, int <replaceable>new_nice</replaceable>);</command>
+    </cmdsynopsis>
+    <cmdsynopsis>
+      <command>struct tc_thread_ref tc_thread_new_ref_in_domain(void (*<replaceable>func</replaceable>)(void *), void *<replaceable>data</replaceable>, char* <replaceable>name</replaceable>, struct tc_domain *<replaceable>domain</replaceable>);</command>
+    </cmdsynopsis>
+    <cmdsynopsis>
+      <command>void tc_thread_pool_new_in_domain(struct tc_thread_pool *<replaceable>threads</replaceable>, void (*<replaceable>func</replaceable>)(void *), void *<replaceable>data</replaceable>, char* <replaceable>name</replaceable>, int <replaceable>excess</replaceable>, struct tc_domain *<replaceable>domain</replaceable>);</command>
+    </cmdsynopsis>
+  </refsynopsisdiv>
+
+  <refsection>
+    <title>Description</title>
+
+    <para>A <emphasis>domain</emphasis> is a collection of pthreads and 
+      tc_threads that operate in the same process and memory map, but the 
+      pthreads can have a different (normally lower) nice value.</para>
+
+    <para>It has its own epoll filehandle, so that threads from a higher 
+      priority domain can preempt threads from a lower priority 
+      domain.</para>
+
+    <para>This means that filehandles have to be registered from a thread 
+      in the correct domain.</para>
+
+    <para>After allocating and initializing a new domain via 
+      <option>tc_new_domain()</option> single tc_threads can be started 
+      in it via <option>tc_thread_new_ref_in_domain()</option>, or thread 
+      pools can be started via 
+      <option>tc_thread_pool_new_in_domain()</option>.</para>
+
+    <para>If threads from different domains must be waited for they have 
+      to be started via <option>tc_thread_wait_ref</option>, as the
+      <option>struct tc_thread_ref</option> includes the correct domain. 
+      Using <option>tc_thread_wait</option> will <emphasis>not</emphasis> 
+      work.</para>
+
+    <para>As typically the nice value can only be increased (ie. to lower 
+      the priority), the normal use is to generate a new domain, renice 
+      it, and start low priority batch processing threads in 
+      there.</para>
+  </refsection>
+  <refsection>
+    <title>Example</title>
+
+    <para>
+      <programlisting format="linespecific">
+      TODO</programlisting>
+      </para>
+  </refsection>
+  <xi:include href="author.xml" xmlns:xi="http://www.w3.org/2001/XInclude" />
+</refentry>
