@@ -29,6 +29,9 @@
 #include <stdarg.h>
 #include <string.h>
 #include <signal.h>
+#include <sys/time.h>
+#include <libaio.h>
+#include <aio.h>
 #include <assert.h>
 #include <sched.h>
 
@@ -43,6 +46,7 @@
 
 #define FREE_WORKER -1
 #define ANY_WORKER -2
+
 
 enum thread_flags {
 	TF_THREADS =   1 << 0, /* is on threads chain*/
@@ -70,6 +74,8 @@ struct tc_thread {
 	int worker_nr;
 	int id;
 
+	struct tc_aio_data aio[TC_AIO_REQUESTS_PER_TC_THREAD];
+
 #ifdef WAIT_DEBUG
 	char *sleep_file;
 	int sleep_line;
@@ -91,6 +97,7 @@ struct worker_struct {
 enum inter_worker_interrupts {
 	IWI_SYNC,
 	IWI_IMMEDIATE,
+	IWI_ASYNC_IO,
 };
 
 
@@ -106,6 +113,9 @@ struct timer_waiter {
 LIST_HEAD(timer_list, timer_waiter);
 
 struct scheduler {
+	int aio_eventfd;
+	io_context_t aio_ctx;
+
 	spinlock_t lock;           /* protects the threads list */
 	struct tc_thread_pool threads;
 	struct event_list immediate;
@@ -340,6 +350,13 @@ static struct event *wakeup_all_events(struct events *es)
 	return ew ? ew : ex;
 }
 
+static inline int tcfd_epoll_ctl(int op, struct tc_fd *tcfd, struct epoll_event *epe)
+{
+	epe->data.ptr = tcfd;
+	return epoll_ctl(sched.efd, op, tcfd->fd, epe);
+}
+
+
 /* must_hold tcfd->lock */
 static int arm(struct tc_fd *tcfd)
 {
@@ -349,10 +366,9 @@ static int arm(struct tc_fd *tcfd)
 	if (epe.events == tcfd->ep_events)
 		return 0;
 
-	epe.data.ptr = tcfd;
 	tcfd->ep_events = epe.events;
 
-	return epoll_ctl(sched.efd, EPOLL_CTL_MOD, tcfd->fd, &epe);
+	return tcfd_epoll_ctl(EPOLL_CTL_MOD, tcfd, &epe);
 }
 
 static void event_list_init(struct event_list *el)
@@ -498,6 +514,17 @@ static void switch_to(struct tc_thread *new)
 	_switch_to(new);
 }
 
+static void arm_aio_efd(int op)
+{
+	struct epoll_event epe;
+
+	epe.data.u64 = IWI_ASYNC_IO;
+	epe.events = EPOLLIN | EPOLLONESHOT;
+
+	if (epoll_ctl(sched.efd, op, sched.aio_eventfd, &epe))
+		msg_exit(1, "epoll_ctl for AIO arm failed with %m\n");
+}
+
 static void arm_immediate(int op)
 {
 	struct epoll_event epe;
@@ -619,7 +646,7 @@ static void rearm_immediate()
 	eventfd_t c;
 
 	if (read(sched.immediate_fd, &c, sizeof(c)) != sizeof(c))
-		msg_exit(1, "read() failed with %m");
+		msg_exit(1, "read() failed with %m\n");
 
 	arm_immediate(EPOLL_CTL_MOD);
 }
@@ -712,6 +739,52 @@ wait_for_another:
 	_switch_to(&worker.sched_p2); /* always -> scheduler_part2()*/
 }
 
+
+#define AIOs_AT_ONCE (8)
+static inline void handle_aio_event()
+{
+	int e2read;
+	int rv;
+	struct io_event ioe[AIOs_AT_ONCE];
+	eventfd_t count;
+	struct timespec ts;
+	struct tc_aio_data *ad;
+	struct tc_waitq *wq;
+
+
+	if (read(sched.aio_eventfd, &count, sizeof(count)) != sizeof(count))
+		msg_exit(1, "read() failed with %m\n");
+
+	ts.tv_sec = ts.tv_nsec = 0;
+	while (count > 0) {
+		e2read = count > AIOs_AT_ONCE ? AIOs_AT_ONCE : count;
+		rv = io_getevents(sched.aio_ctx, e2read, AIOs_AT_ONCE, ioe, &ts);
+		if (rv < 0)
+			msg_exit(1, "io_getevents failed with %m\n");
+
+
+		while (rv>0) {
+			rv--;
+			ad = ioe[rv].data;
+
+			ad->res = ioe[rv].res;
+			ad->res2 = ioe[rv].res2;
+			/* Order important? Other way than in tc_aio_wait()? */
+			tc_aio_set_data_done(ad);
+			wq = ad->notify;
+//			ad->notify = NULL; ??
+
+			if (wq)
+				tc_waitq_wakeup_all(wq);
+		}
+
+		count -= e2read;
+	}
+
+	arm_aio_efd(EPOLL_CTL_MOD);
+}
+
+
 static void scheduler_part2()
 {
 	struct epoll_event epe;
@@ -719,6 +792,7 @@ static void scheduler_part2()
 	struct event *e;
 	struct tc_thread *tc;
 	int er;
+
 
 	tc = (struct tc_thread *)cr_uptr(cr_caller());
 	spin_unlock(&tc->running);
@@ -752,6 +826,10 @@ static void scheduler_part2()
 		case IWI_SYNC:
 			worker_after_sleep();
 			continue;
+		case IWI_ASYNC_IO:
+			handle_aio_event();
+			worker_after_sleep();
+			continue;
 		case IWI_IMMEDIATE:
 			worker_after_sleep();
 			rearm_immediate();
@@ -759,7 +837,8 @@ static void scheduler_part2()
 			continue;
 		}
 
-		tcfd = (struct tc_fd *)epe.data.ptr;
+
+		tcfd = epe.data.ptr;
 
 		spin_lock(&tcfd->events.lock);
 
@@ -818,7 +897,7 @@ static void scheduler_part2()
 				   semantics. Need to remove an FD with an HUP or ERR
 				   condition immediately. Since this might be done by
 				   all workers concurrently, ignore failures here.*/
-				epoll_ctl(sched.efd, EPOLL_CTL_DEL, tcfd->fd, &epe);
+				epoll_ctl(sched.efd, EPOLL_CTL_DEL, tcfd->fd, NULL);
 			}
 
 			spin_unlock(&tcfd->events.lock);
@@ -831,6 +910,7 @@ static void scheduler_part2()
 		tc = run_or_queue(e);
 
 		spin_unlock(&tcfd->events.lock);
+
 		worker_after_sleep();
 
 		if (tc)
@@ -931,14 +1011,32 @@ void tc_init()
 	_tc_fd_init(&sched.timer_tcfd, fd);
 
 	sched.immediate_fd = eventfd(0, 0);
-	if (sched.immediate_fd == -1)
+	sched.aio_eventfd = eventfd(0, 0);
+	if (sched.immediate_fd == -1 ||
+			sched.aio_eventfd == -1)
 		msg_exit(1, "eventfd() failed with: %m\n");
 
 	if (sched_getaffinity(0, sizeof(sched.available_cpus), &sched.available_cpus))
 		msg_exit(1, "sched_getaffinity: %m\n");
 
 	arm_immediate(EPOLL_CTL_ADD);
+	arm_aio_efd(EPOLL_CTL_ADD);
+
+	sched.aio_ctx = NULL;
 }
+
+
+static void tc_aio_init(void)
+{
+	int max;
+
+	max = sched.nr_of_workers * 4;
+	if (max > 256)
+		max = 256;
+	if (io_setup(max, &sched.aio_ctx))
+		msg_exit(1, "io_setup failed with %m\n");
+}
+
 
 static void *worker_pthread(void *arg)
 {
@@ -962,6 +1060,7 @@ void tc_run(void (*func)(void *), void *data, char* name, int nr_of_workers)
 	tc_init();
 	tc_worker_init(0);
 
+
 	avail_cpu = CPU_COUNT(&sched.available_cpus);
 	if (nr_of_workers <= 0) {
 		nr_of_workers = avail_cpu + nr_of_workers;
@@ -978,6 +1077,8 @@ void tc_run(void (*func)(void *), void *data, char* name, int nr_of_workers)
 	sched.last_thread_id = rand();
 
 	tc_main = tc_thread_new(func, data, name);
+
+	tc_aio_init();
 
 
 	threads = alloca(sizeof(pthread_t) * nr_of_workers);
@@ -1045,6 +1146,8 @@ void tc_die()
 		LIST_REMOVE(tc, threads_chain);
 	spin_unlock(&sched.lock);
 
+	tc_aio_wait();
+
 	if (atomic_read(&tc->refcnt) > 0) {
 		signal_cancel_pending();
 		if (atomic_read(&tc->refcnt) > 0) {
@@ -1078,10 +1181,13 @@ void tc_setup(void *arg1, void *arg2)
 static struct tc_thread *_tc_thread_new(void (*func)(void *), void *data, char* name)
 {
 	struct tc_thread *tc;
+	int i;
 
 	tc = malloc(sizeof(struct tc_thread));
 	if (!tc)
 		goto fail2;
+
+	memset(tc, 0, sizeof(*tc));
 
 	tc->cr = cr_create(tc_setup, func, data, sched.stack_size);
 	if (!tc->cr)
@@ -1098,6 +1204,9 @@ static struct tc_thread *_tc_thread_new(void (*func)(void *), void *data, char* 
 	event_list_init(&tc->pending);
 	tc->worker_nr = FREE_WORKER;
 	tc->event_stack = NULL;
+
+	for(i=0; i<TC_AIO_REQUESTS_PER_TC_THREAD; i++)
+		tc_aio_data_init(tc->aio + i);
 
 	spin_lock(&sched.lock);
 	LIST_INSERT_HEAD(&sched.threads, tc, tc_chain);
@@ -1214,10 +1323,9 @@ static void _tc_fd_init(struct tc_fd *tcfd, int fd)
 	if (fcntl(fd, F_SETFL, arg) < 0)
 		goto fcntl_err;
 
-	epe.data.ptr = tcfd;
 	epe.events = 0;
 
-	if (epoll_ctl(sched.efd, EPOLL_CTL_ADD, fd, &epe) == 0)
+	if (tcfd_epoll_ctl(EPOLL_CTL_ADD, tcfd, &epe) == 0)
 		return;
 
 	err = "epoll_ctl(%d) failed with %m\n";
@@ -2066,6 +2174,325 @@ enum tc_rv tc_rw_w_trylock(struct tc_rw_lock *l)
 	}
 	return rv;
 }
+
+
+/* These functions need access to internals, so we have to include that here.
+ *
+ * See also
+ *   http://www.xmailserver.org/eventfd-aio-test.c
+ *   http://ozlabs.org/~rusty/index.cgi/tech/2008-01-08.html
+ *   http://www.monkey.org/~provos/libevent/
+ *
+ */
+
+
+/* Does wait for outstanding (simple) IO requests of this tc_thread.
+ * Returns 0 for ok.
+ *
+ * Does only check the few internally-allocated AIO operations, ie.
+ * with the (struct tc_aio_data) embedded in (struct tc_thread). */
+int tc_aio_wait(void)
+{
+	struct tc_thread *tc;
+	int i;
+	int rv;
+	struct tc_aio_data *ad;
+	struct tc_waitq wq;
+	struct event e;
+
+	tc = tc_current();
+	rv = 0;
+
+	tc_waitq_init(&wq);
+	tc_event_init(&e);
+
+	e.flags = EF_READY;
+
+	for(i=0; i<TC_AIO_REQUESTS_PER_TC_THREAD; i++)
+	{
+		ad = tc->aio + i;
+
+		if (ad->notify) {
+			/* save and restore the wq?
+			 * but then do a wakeup_one or all?
+			 * risks duplicate notifications ...
+			 * TODO */
+			/* If the caller wanted to be notified, he will get notified ... */
+			continue;
+		}
+
+		ad->notify = &wq;
+
+		rv = tc_waitq_wait_event(&wq,
+				tc_aio_data_done(ad)) || rv;
+
+		/* This wq will be gone soon */
+		ad->notify = NULL;
+
+		if (tc_aio_data_done(ad) == TC_AIO_FLAG_AD_FREE)
+			continue;
+
+		if (ad->res < 0 && !rv)
+			rv = ad->res;
+		if (ad->res2 && !rv)
+			rv = ad->res2;
+
+#if 0
+		ad->res = 0;
+		ad->res2 = 0;
+#endif
+		/* Result returned, don't return again */
+		tc_aio_set_data_free(ad);
+	}
+
+	return rv;
+}
+
+
+static int _tc_aio_get_aio_data(struct tc_aio_data **rad)
+{
+	int rv;
+	int i;
+	struct tc_thread *tc;
+	struct tc_aio_data *ad;
+
+	tc = tc_current();
+
+	while (1) {
+		for(i=0; i<TC_AIO_REQUESTS_PER_TC_THREAD; i++) {
+			ad = tc->aio + i;
+			if (tc_aio_data_done(ad) == TC_AIO_FLAG_AD_FREE) {
+				*rad = ad;
+				return 0;
+			}
+		}
+
+		rv = tc_aio_wait();
+		if (rv)
+			return rv;
+	}
+}
+
+
+inline static int _tc_aio_submit_keep_notify(struct tc_aio_data *ad)
+{
+	int rv;
+	struct iocb *cb;
+	struct tc_waitq *wq;
+
+	/* TODO: not needed, cb.obj is sufficient */
+	ad->cb.data = ad;
+	ad->res = 0;
+	ad->res2 = 0;
+	io_set_eventfd(&ad->cb, sched.aio_eventfd);
+
+	cb = &ad->cb;
+	rv = io_submit(sched.aio_ctx, 1, &cb);
+
+	if (rv == 1)
+		return 0;
+
+	wq = ad->notify;
+	tc_aio_set_data_done(ad);
+	if (wq)
+		tc_waitq_wakeup_all(wq);
+
+	return -rv;
+}
+
+
+inline static int _tc_aio_submit(struct tc_aio_data *ad)
+{
+	ad->notify = NULL;
+	return _tc_aio_submit_keep_notify(ad);
+}
+
+
+/* Submits a sync request, doesn't wait.
+ * After the next tc_aio_wait() the written data should be on stable storage.
+ * */
+int tc_aio_submit_sync_notify(int fd, int data_only, struct tc_aio_data *ad, struct tc_waitq *wq)
+{
+	static int warned = 0;
+	int rv;
+
+	if (!ad) {
+		rv = _tc_aio_get_aio_data(&ad);
+		if (rv)
+			return rv;
+	}
+
+	if (!warned) {
+		warned = 1;
+		fprintf(stderr, "#warning libtcr AIO: aio_sync not available, no kernel support\n");
+	}
+
+
+	(data_only ? io_prep_fdsync : io_prep_fsync)
+		(&ad->cb, fd);
+	ad->notify = wq;
+	return _tc_aio_submit_keep_notify(ad);
+}
+
+
+/* Does only submit IO; does not wait for completion. */
+int tc_aio_submit_write_notify(int fh, void *buffer, size_t size, off_t offset,
+		struct tc_aio_data *ad, struct tc_waitq *wq)
+{
+	int rv;
+
+	if (!ad) {
+		rv = _tc_aio_get_aio_data(&ad);
+		if (rv)
+			return RV_FAILED;
+	}
+
+	io_prep_pwrite(&ad->cb, fh, buffer, size, offset);
+	ad->notify = wq;
+	return _tc_aio_submit_keep_notify(ad);
+}
+
+
+/* Does wait for completion. */
+int tc_aio_read(int fh, void *buffer, size_t size, off_t offset)
+{
+	struct tc_aio_data *ad;
+	int rv;
+
+	rv = _tc_aio_get_aio_data(&ad);
+	if (rv)
+		return RV_FAILED;
+
+	io_prep_pread(&ad->cb, fh, buffer, size, offset);
+	rv = _tc_aio_submit(ad);
+	if (rv)
+		return rv;
+
+	rv = tc_aio_wait();
+	if (rv)
+		return rv;
+
+	if (ad->res == size)
+		return 0;
+
+	/* There's something wrong, don't return 0. */
+	return ad->res || -1;
+}
+
+
+struct _tc_aio_sync_notify_struct {
+	int fd;
+	int data_only;
+	struct tc_aio_data *ad;
+	struct tc_waitq *wq;
+};
+
+
+static inline void __tc_aio_sync(int fh, int data_only, struct tc_aio_data *ad, struct tc_waitq *wq)
+{
+	struct timeval tv1, tv2;
+	uint64_t delta;
+	int ret;
+
+	tc_aio_data_init(ad);
+	tc_aio_set_data_pending(ad);
+
+	gettimeofday(&tv1, NULL);
+	ret = (data_only ? fdatasync : fsync)(fh);
+	ad->res = ret ? errno : 0;
+	gettimeofday(&tv2, NULL);
+
+	delta = (tv2.tv_sec - tv1.tv_sec) * 1e6 +
+		(tv2.tv_usec - tv1.tv_usec);
+	ad->res2 = delta;
+	tc_aio_set_data_done(ad);
+
+	if (wq)
+		tc_waitq_wakeup_all(wq);
+}
+
+
+void *_tc_aio_sync_notify(void *_s)
+{
+	struct _tc_aio_sync_notify_struct *s = _s;
+	void *a[10] = {},
+		 *b;
+
+	pthread_detach(pthread_self());
+	b = &a;
+	__cr_current = (struct coroutine*)&b;
+
+	__tc_aio_sync(s->fd, s->data_only, s->ad, s->wq);
+
+	free(s);
+	return NULL;
+}
+
+
+/* There's no AIO sync yet. */
+int tc_aio_sync_notify(int fd, int data_only, struct tc_aio_data *ad, struct tc_waitq *wq)
+{
+	if (!ad)
+		return EINVAL;
+
+#if 1
+	__tc_aio_sync(fd, data_only, ad, wq);
+	return ad->res;
+#else
+	struct _tc_aio_sync_notify_struct *s;
+	pthread_t pt;
+	int ret;
+
+	s = malloc(sizeof(*s));
+	if (!s)
+		msg_exit(1, "OOM tc_aio_sync_notify");
+
+	s->fd = fd;
+	s->wq = wq;
+	s->ad = ad;
+	s->data_only = data_only;
+
+	ret = pthread_create(&pt, NULL, &_tc_aio_sync_notify, s);
+	return ret;
+#endif
+
+#if 0
+	struct tc_aio_data *ad;
+	int rv;
+
+	rv = _tc_aio_get_aio_data(&ad);
+	if (rv)
+		return rv;
+
+	io_prep_fsync(&ad->cb, fd);
+	ad->notify = wq;
+	return _tc_aio_submit_keep_notify(ad);
+#endif
+}
+
+
+int tc_aio_sync(int fd, int data_only)
+{
+	int rv, rv2;
+	struct tc_aio_data ad;
+	struct tc_waitq wq;
+
+	tc_waitq_init(&wq);
+
+	tc_aio_data_init(&ad);
+	tc_aio_set_data_pending(&ad);
+
+	rv2 = 1;
+	rv = tc_waitq_wait_event(&wq,
+			({
+			 if (rv2)
+			 rv2 = tc_aio_sync_notify(fd, data_only, &ad, &wq);
+			 rv2 || tc_aio_data_done(&ad);
+			 }));
+
+	return rv || rv2;
+}
+
 
 #ifdef WAIT_DEBUG
 

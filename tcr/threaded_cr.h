@@ -24,6 +24,7 @@
 #include <stddef.h>
 #include <pthread.h>
 #include <stdarg.h>
+#include <libaio.h>
 
 #include "config.h"
 #include "compat.h"
@@ -485,5 +486,126 @@ static inline int tc_rw_get_readers(struct tc_rw_lock *l)
 void tc_dump_threads(void);
 
 #endif /* ifdef WAIT_DEBUG */
+
+/*
+ * Async IO interface for libtcr.
+ *
+ * This must be used when writing to storage; using the normal write()/read()
+ * calls would block the serving pthread, while these interrupt (optionally)
+ * only the tc_thread, so that other tc_threads can be run by this pthread.
+ *
+ * It uses a limited number of iocb structures within each tc_thread; when they
+ * are exhausted a tc_aio_wait() is done implicitly, to free space for the new
+ * request.
+ *
+ */
+
+struct tc_aio_data {
+	/* Kept at offset 0 */
+	struct iocb cb;
+
+	/* return code: bytes transferred, error? */
+	int64_t res;
+	/* faults? */
+	int64_t res2;
+	/* the flag for "iocb done" is cb->aio_reserved1 - this _must_ be
+	 * 0 (io_prep_* does memset(), kernel verifies), so after the kernel
+	 * is done we can safely set it to 1.
+	 * In userspace this seems to be called __pad2. */
+
+	struct tc_waitq *notify;
+};
+
+#define TC_AIO_DONE_FIELD __pad2
+#define TC_AIO_FLAG_AD_FREE (4)
+static inline int tc_aio_data_done(struct tc_aio_data *ad)
+{
+	return ad->cb.TC_AIO_DONE_FIELD;
+}
+
+static inline void tc_aio_set_data_done(struct tc_aio_data *ad)
+{
+	ad->cb.TC_AIO_DONE_FIELD = 1;
+}
+
+static inline void tc_aio_set_data_free(struct tc_aio_data *ad)
+{
+	ad->cb.TC_AIO_DONE_FIELD = TC_AIO_FLAG_AD_FREE;
+}
+
+static inline void tc_aio_set_data_pending(struct tc_aio_data *ad)
+{
+	ad->cb.TC_AIO_DONE_FIELD = 0;
+}
+
+
+
+static inline void tc_aio_data_init(struct tc_aio_data *ad)
+{
+	memset(ad, 0, sizeof(*ad));
+	/* Mark as "not in use" */
+	tc_aio_set_data_done(ad);
+}
+
+
+#define TC_AIO_REQUESTS_PER_TC_THREAD (8)
+
+
+/* Does wait for outstanding IO requests of this tc_thread. */
+int tc_aio_wait();
+
+/* Submits a sync request, doesn't wait.
+ * After the next tc_aio_wait() the written data should be on stable storage.
+ * */
+int tc_aio_submit_sync_notify(int fd, int data_only,
+		struct tc_aio_data *ad, struct tc_waitq *wq);
+
+/* Does only submit IO; does not wait for completion. */
+int tc_aio_submit_write_notify(int fh, void *buffer, size_t size, off_t offset,
+		struct tc_aio_data *tc_aio, struct tc_waitq *wq);
+static inline int tc_aio_submit_write(int fh, void *buffer, size_t size, off_t offset) {
+	return tc_aio_submit_write_notify(fh, buffer, size, offset, NULL, NULL);
+}
+
+/* Does wait for completion.
+ * Returns 0 for ok; should it give the number of bytes read instead? */
+int tc_aio_read(int fh, void *buffer, size_t size, off_t offset);
+
+
+/* Does an fsync() on the FD and waits until completion.  */
+int tc_aio_sync(int fd, int data_only);
+#if 0
+static inline int tc_aio_sync(int fd, int data_only)
+{
+	int rv;
+
+	rv = tc_aio_submit_sync_notify(fd, data_only, NULL, NULL);
+	if (!rv)
+		rv = tc_aio_wait();
+	return rv;
+}
+#endif
+
+
+/* Does an fsync() on the filehandle, ensures that all AIO requests from
+ * _this_ tc_thread are done (incl. the sync), then calls the notification
+ * function.
+ * The tc_thread in which the function is called is not specified.
+ * */
+int tc_aio_sync_notify(int fd, int data_only, struct tc_aio_data *ad, struct tc_waitq *wq);
+
+
+/* Writes data to fd and waits for completion.
+ * Note: this doesn't say that the data is on stable storage, see tc_aio_sync()
+ * for that. */
+static inline int tc_aio_write(int fh, void *buffer, size_t size, off_t offset)
+{
+	int rv;
+
+	rv = tc_aio_submit_write(fh, buffer, size, offset);
+	if (!rv)
+		rv = tc_aio_wait();
+	return rv;
+}
 
 #endif /* ifndef THREADED_CR_H */

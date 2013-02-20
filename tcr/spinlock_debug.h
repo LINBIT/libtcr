@@ -57,7 +57,6 @@ static inline int __spin_trylock(spinlock_t *l, char* holder, char* file, int li
 	if (!__sync_bool_compare_and_swap(&l->lock, 0, 1))
 		return 0;
 
-	ANNOTATE_RWLOCK_ACQUIRED(l, 1);
 	l->file = file;
 	l->line = line;
 	l->holder = holder;

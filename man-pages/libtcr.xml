@@ -16,7 +16,7 @@
 
   <refsynopsisdiv>
     <cmdsynopsis>
-      <command>-l tc -l pthread</command>
+      <command>-l tc -l pthread -l rt -l aio</command>
     </cmdsynopsis>
   </refsynopsisdiv>
 
