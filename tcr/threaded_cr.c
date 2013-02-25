@@ -91,6 +91,7 @@ struct tc_thread {
 	struct tc_domain *domain;
 
 	struct tc_aio_data aio[TC_AIO_REQUESTS_PER_TC_THREAD];
+	struct tc_waitq aio_wq;
 
 #ifdef WAIT_DEBUG
 	char *sleep_file;
@@ -1322,6 +1323,7 @@ static struct tc_thread *_tc_thread_setup(void (*func)(void *), void *data, char
 
 	for(i=0; i<TC_AIO_REQUESTS_PER_TC_THREAD; i++)
 		tc_aio_data_init(tc->aio + i);
+	tc_waitq_init(&tc->aio_wq);
 
 	return tc;
 
@@ -2370,16 +2372,9 @@ int tc_aio_wait(void)
 	int i;
 	int rv;
 	struct tc_aio_data *ad;
-	struct tc_waitq wq;
-	struct event e;
 
 	tc = tc_current();
 	rv = 0;
-
-	tc_waitq_init(&wq);
-	tc_event_init(&e);
-
-	e.flags = EF_READY;
 
 	for(i=0; i<TC_AIO_REQUESTS_PER_TC_THREAD; i++)
 	{
@@ -2394,9 +2389,9 @@ int tc_aio_wait(void)
 			continue;
 		}
 
-		ad->notify = &wq;
+		ad->notify = &tc->aio_wq;
 
-		rv = tc_waitq_wait_event(&wq,
+		rv = tc_waitq_wait_event(&tc->aio_wq,
 				tc_aio_data_done(ad)) || rv;
 
 		/* This wq will be gone soon */
