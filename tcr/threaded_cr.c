@@ -506,7 +506,7 @@ static void arm_immediate(int op)
 	epe.events = EPOLLIN | EPOLLONESHOT;
 
 	if (epoll_ctl(sched.efd, op, sched.immediate_fd, &epe))
-		msg_exit(1, "epoll_ctl failed with %m\n");
+		msg_exit(1, "epoll_ctl for immediate arm failed with %m\n");
 }
 
 /* The event is not on any list. */
@@ -1215,17 +1215,17 @@ static void _tc_fd_init(struct tc_fd *tcfd, int fd)
 	if (epoll_ctl(sched.efd, EPOLL_CTL_ADD, fd, &epe) == 0)
 		return;
 
-	err = "epoll_ctl failed with %m\n";
+	err = "epoll_ctl(%d) failed with %m\n";
 	goto invalid;
 
 fcntl_err:
-		err = "fcntl() failed: %m\n";
+		err = "fcntl(%d) failed: %m\n";
 
 invalid:
 	atomic_set(&tcfd->err_hup, 1);
 	/* We process the message last, so that the fd is dead as soon as possible.
 	 * */
-	msg(err);
+	msg(err, fd);
 	return;
 }
 
