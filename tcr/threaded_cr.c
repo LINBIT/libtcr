@@ -2202,13 +2202,14 @@ enum tc_rv tc_sleep(int clockid, time_t sec, long nsec)
 	clock_gettime(CLOCK_MONOTONIC, &tw.abs_end);
 	tw.abs_end.tv_sec += sec;
 	tw.abs_end.tv_nsec += nsec;
-	tw.tc = tc_current();
-	tc_waitq_init(&tw.wq);
-	LIST_NEXT(&tw, tl) = NOT_ON_TIMERLIST;
 	while (tw.abs_end.tv_nsec > 1e9) {
 		tw.abs_end.tv_nsec -= 1e9;
 		tw.abs_end.tv_sec  +=   1;
 	}
+
+	tw.tc = tc_current();
+	tc_waitq_init(&tw.wq);
+	LIST_NEXT(&tw, tl) = NOT_ON_TIMERLIST;
 
 	c = atomic_inc(&tc_this_pthread_domain->timer_sleepers);
 
