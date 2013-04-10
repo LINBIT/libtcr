@@ -88,6 +88,8 @@ struct tc_thread {
 	int worker_nr;
 	int id;
 
+	struct tc_domain *domain;
+
 	struct tc_aio_data aio[TC_AIO_REQUESTS_PER_TC_THREAD];
 
 #ifdef WAIT_DEBUG
@@ -106,6 +108,7 @@ struct worker_struct {
 	LIST_ENTRY(worker_struct) worker_chain;
 	int is_on_sleeping_list:1;
 	int must_sync:1;
+	int is_init:1;
 	pid_t tid;
 };
 
@@ -200,7 +203,7 @@ __thread struct tc_domain *tc_this_pthread_domain = NULL;
 /* I don't want to make "tc_this_pthread_domain" visible globally, but  */
 #define tc_this_pthread_domain tc_this_pthread_domain
 
-static struct tc_thread *tc_main;
+static struct tc_thread_ref tc_main;
 static __thread struct worker_struct worker;
 
 static void new_domain(struct tc_domain **pd)
@@ -969,6 +972,10 @@ void tc_worker_init(void)
 	int cpus_seen = 0, ci, my_cpu, rv = 0;
 	int i;
 
+	/* From tc_run() for main thread, but not twice
+	 * (from tc_new_domain()) */
+	if (worker.is_init)
+		return;
 
 	i = atomic_inc(&common.pthread_counter) - 1;
 
@@ -1022,6 +1029,8 @@ found_cpu:
 	worker.sched_p2.worker_nr = i;
 	worker.must_sync = 0;
 	worker.is_on_sleeping_list = 0;
+	worker.is_init = 1;
+
 	spin_lock(&tc_this_pthread_domain->worker_list_lock);
 	LIST_INSERT_HEAD(&tc_this_pthread_domain->worker_list, &worker, worker_chain);
 	spin_unlock(&tc_this_pthread_domain->worker_list_lock);
@@ -1098,10 +1107,11 @@ static void tc_aio_init(void)
 
 static void *worker_pthread(void *_s)
 {
+	assert(_s);
 	tc_this_pthread_domain = _s;
 
 	tc_worker_init();
-	tc_thread_wait(tc_main); /* calls tc_scheduler() */
+	tc_thread_wait_ref(&tc_main); /* calls tc_scheduler() */
 
 	_iwi_immediate(); /* All other workers need to get woken UNCONDITIONALLY
 			     So that the complete program can terminate */
@@ -1109,15 +1119,10 @@ static void *worker_pthread(void *_s)
 }
 
 
-struct tc_domain *_tc_new_domain(int nr_of_workers, int reuse_pthread)
+struct tc_domain *_setup_domain(struct tc_domain *n_d, int nr_of_workers)
 {
 	pthread_t *threads;
-	int i;
 	int avail_cpu;
-	struct tc_domain *n_d;
-
-
-	new_domain(&n_d);
 
 	WITH_OTHER_DOMAIN_BEGIN(n_d);
 
@@ -1143,47 +1148,64 @@ struct tc_domain *_tc_new_domain(int nr_of_workers, int reuse_pthread)
 	tc_aio_init();
 
 
-	threads = alloca(sizeof(pthread_t) * nr_of_workers);
+	threads = malloc(sizeof(pthread_t) * nr_of_workers);
 	tc_this_pthread_domain->pthreads = threads;
 	if (!threads)
-		msg_exit(1, "alloca() in tc_run failed\n");
-
-	/* The initial pthread is used, too; but on starting a new domain no
-	 * thread can be "recycled". */
-	if (reuse_pthread) {
-		threads[0] = pthread_self(); /* actually unused */
-		i = 1;
-	}
-	else
-		i = 0;
-	for (; i < nr_of_workers; i++)
-		pthread_create(threads + i, NULL, worker_pthread, n_d);
+		msg_exit(1, "malloc() in tc_run failed\n");
 
 	WITH_OTHER_DOMAIN_END();
 	return n_d;
 }
 
-struct tc_domain *tc_new_domain(int nr_of_workers)
-{
-	return _tc_new_domain(nr_of_workers, 0);
-}
-
-struct tc_domain *tc_run(void (*func)(void *), void *data, char* name, int nr_of_workers)
+static void start_pthreads(struct tc_domain *n_d, int reuse_pthread)
 {
 	int i;
 
+	/* The initial pthread is used, too; but on starting a new domain no
+	 * thread can be "recycled". */
+	if (reuse_pthread) {
+		n_d->pthreads[0] = pthread_self(); /* actually unused */
+		i = 1;
+	}
+	else
+		i = 0;
+	for (; i < n_d->nr_of_workers; i++)
+		pthread_create(n_d->pthreads + i, NULL, worker_pthread, n_d);
+}
+
+struct tc_domain *tc_new_domain(int nr_of_workers)
+{
+	struct tc_domain *n_d;
+
+	n_d = NULL;
+	new_domain(&n_d);
+
+	_setup_domain(n_d, nr_of_workers);
+	start_pthreads(n_d, 0);
+	return n_d;
+}
+
+void tc_run(void (*func)(void *), void *data, char* name, int nr_of_workers)
+{
+	int i;
+	struct tc_domain *n_d;
+
+
+	new_domain(&n_d);
+	_setup_domain(n_d, nr_of_workers);
 
 	/* New scheduler domain becomes "default" */
-	tc_this_pthread_domain =
-		_tc_new_domain(nr_of_workers, 1);
+	tc_this_pthread_domain = n_d;
 
-	tc_main = tc_thread_new(func, data, name);
-	tc_thread_wait(tc_main); /* calls tc_scheduler() */
+	tc_worker_init();
+	tc_main = tc_thread_new_ref(func, data, name);
+
+	start_pthreads(n_d, 1);
+
+	tc_thread_wait_ref(&tc_main); /* calls tc_scheduler() */
 
 	for (i = 1; i < nr_of_workers; i++)
-		pthread_join(tc_this_pthread_domain->pthreads[i], NULL);
-
-	return tc_this_pthread_domain;
+		pthread_join(n_d->pthreads[i], NULL);
 }
 
 
@@ -1269,7 +1291,7 @@ void tc_setup(void *arg1, void *arg2)
 	tc_die();
 }
 
-static struct tc_thread *_tc_thread_new(void (*func)(void *), void *data, char* name)
+static struct tc_thread *_tc_thread_setup(void (*func)(void *), void *data, char* name)
 {
 	struct tc_thread *tc;
 	int i;
@@ -1286,7 +1308,8 @@ static struct tc_thread *_tc_thread_new(void (*func)(void *), void *data, char* 
 
 	cr_set_uptr(tc->cr, (void *)tc);
 	tc->name = name;
-	tc->per_thread_data = tc_thread_var_get();
+	if (cr_current() && tc_current())
+		tc->per_thread_data = tc_thread_var_get();
 	tc_waitq_init(&tc->exit_waiters);
 	atomic_set(&tc->refcnt, 0);
 	spin_lock_init(&tc->running);
@@ -1295,17 +1318,10 @@ static struct tc_thread *_tc_thread_new(void (*func)(void *), void *data, char* 
 	event_list_init(&tc->pending);
 	tc->worker_nr = FREE_WORKER;
 	tc->event_stack = NULL;
+	tc->domain = tc_this_pthread_domain;
 
 	for(i=0; i<TC_AIO_REQUESTS_PER_TC_THREAD; i++)
 		tc_aio_data_init(tc->aio + i);
-
-	spin_lock(&tc_this_pthread_domain->lock);
-	LIST_INSERT_HEAD(&tc_this_pthread_domain->threads, tc, tc_chain);
-	tc_this_pthread_domain->last_thread_id++;
-	if (tc_this_pthread_domain->last_thread_id == 0)
-		tc_this_pthread_domain->last_thread_id = 1;
-	tc->id = tc_this_pthread_domain->last_thread_id;
-	spin_unlock(&tc_this_pthread_domain->lock);
 
 	return tc;
 
@@ -1315,24 +1331,47 @@ fail2:
 	return NULL;
 }
 
+static void _tc_thread_insert(struct tc_thread *tc)
+{
+	spin_lock(&tc_this_pthread_domain->lock);
+	LIST_INSERT_HEAD(&tc_this_pthread_domain->threads, tc, tc_chain);
+	tc_this_pthread_domain->last_thread_id++;
+	if (tc_this_pthread_domain->last_thread_id == 0)
+		tc_this_pthread_domain->last_thread_id = 1;
+	tc->id = tc_this_pthread_domain->last_thread_id;
+	spin_unlock(&tc_this_pthread_domain->lock);
+}
+
+
+static struct tc_thread *_tc_thread_new(void (*func)(void *), void *data, char* name)
+{
+	struct tc_thread *tc;
+
+	tc = _tc_thread_setup(func, data, name);
+	if (tc)
+		_tc_thread_insert(tc);
+	return tc;
+}
+
+
 struct tc_thread *tc_thread_new(void (*func)(void *), void *data, char* name)
 {
-	struct tc_thread *tc = _tc_thread_new(func, data, name);
-
-	if (tc) {
-		add_event_cr(&tc->e, 0, EF_READY, tc);
-		iwi_immediate();
-	}
-
-	return tc;
+	return tc_thread_new_ref(func, data, name).thr;
 }
 
 struct tc_thread_ref tc_thread_new_ref(void (*func)(void *), void *data, char* name)
 {
-	struct tc_thread_ref t;
+	struct tc_thread_ref t = { 0 };
 
-	t.thr = tc_thread_new(func, data, name);
-	t.id = t.thr->id;
+	t.thr = _tc_thread_new(func, data, name);
+
+	if (t.thr) {
+		add_event_cr(&t.thr->e, 0, EF_READY, t.thr);
+		iwi_immediate();
+
+		t.id = t.thr->id;
+	}
+
 	return t;
 }
 
@@ -1663,11 +1702,11 @@ int tc_mutex_waiters(struct tc_mutex *m)
 }
 
 
-static enum tc_rv _thread_valid(struct tc_thread *look_for)
+static enum tc_rv _thread_valid(struct tc_domain *domain, struct tc_thread *look_for)
 {
 	struct tc_thread *tc;
 
-	LIST_FOREACH(tc, &tc_this_pthread_domain->threads, tc_chain) {
+	LIST_FOREACH(tc, &domain->threads, tc_chain) {
 		if (tc == look_for)
 			return RV_OK;
 	}
@@ -1677,6 +1716,7 @@ static enum tc_rv _thread_valid(struct tc_thread *look_for)
 enum tc_rv tc_thread_wait_ref(struct tc_thread_ref *ref)
 {
 	struct tc_thread *wait_for;
+	struct tc_domain *d;
 	struct event e;
 	enum tc_rv rv;
 
@@ -1684,9 +1724,10 @@ enum tc_rv tc_thread_wait_ref(struct tc_thread_ref *ref)
 		return RV_OK;
 
 	wait_for = ref->thr;
+	d = wait_for->domain;
 	tc_event_init(&e);
-	spin_lock(&tc_this_pthread_domain->lock);
-	rv = _thread_valid(wait_for);  /* wait_for might have already exited */
+	spin_lock(&d->lock);
+	rv = _thread_valid(d, wait_for);  /* wait_for might have already exited */
 	if (rv == RV_OK) {
 		if (ref->id && wait_for->id != ref->id)
 			rv = RV_THREAD_NA;
@@ -1695,7 +1736,7 @@ enum tc_rv tc_thread_wait_ref(struct tc_thread_ref *ref)
 		}
 	}
 
-	spin_unlock(&tc_this_pthread_domain->lock);
+	spin_unlock(&d->lock);
 	ref->thr = NULL;
 	if (rv == RV_THREAD_NA)
 		return rv;

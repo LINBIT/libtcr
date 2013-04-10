@@ -120,7 +120,7 @@ struct tc_thread_ref {
  tc_run() must be called once _for_each_pthread_group.
  It returns a scheduler "domain" that consists of the associated pthreads.
 */
-struct tc_domain *tc_run(void (*func)(void *), void *data, char* name, int nr_of_workers);
+void tc_run(void (*func)(void *), void *data, char* name, int nr_of_workers);
 void tc_init();
 void tc_worker_init();
 void tc_scheduler();
@@ -129,6 +129,7 @@ int tc_thread_count(void);
 
 /* Renice a scheduling domain */
 void tc_renice_domain(struct tc_domain *domain, int new_nice);
+struct tc_domain *tc_new_domain(int nr_of_workers);
 
 typedef int (*diagnostic_fn)(const char *format, va_list ap);
 void tc_set_diagnostic_fn(diagnostic_fn f);
