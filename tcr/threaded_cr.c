@@ -770,8 +770,8 @@ static inline void handle_aio_event()
 			ad->res = ioe[rv].res;
 			ad->res2 = ioe[rv].res2;
 			/* Order important? Other way than in tc_aio_wait()? */
-			tc_aio_set_data_done(ad);
 			wq = ad->notify;
+			tc_aio_set_data_done(ad);
 //			ad->notify = NULL; ??
 
 			if (wq)
