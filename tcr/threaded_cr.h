@@ -50,6 +50,7 @@ enum tc_rv {
 	RV_FAILED    = 3
 };
 
+struct tc_domain;
 struct event {
 	CIRCLEQ_ENTRY(event) e_chain;
 	struct tc_thread *tc;
@@ -62,6 +63,7 @@ struct event {
 	unsigned int acked:1;
 	struct event *next_in_stack;
 	struct event_list *el;
+	struct tc_domain *domain;
 };
 
 CIRCLEQ_HEAD(events, event);
@@ -115,18 +117,18 @@ struct tc_thread_ref {
 };
 
 /* Threaded coroutines
- tc_run() is the most convenient way to initialize the threaded coroutines
- system. Alternatively use tc_init(), start a number of pthreads, and
- call tc_worker_init() and tc_scheduler() in each pthread.
-
- Call this only once, else weird things may happen.
+ tc_run() must be called once _for_each_pthread_group.
+ It returns a scheduler "domain" that consists of the associated pthreads.
 */
-void tc_run(void (*func)(void *), void *data, char* name, int nr_of_workers);
+struct tc_domain *tc_run(void (*func)(void *), void *data, char* name, int nr_of_workers);
 void tc_init();
-void tc_worker_init(int i);
+void tc_worker_init();
 void tc_scheduler();
 int tc_sched_yield();
 int tc_thread_count(void);
+
+/* Renice a scheduling domain */
+void tc_renice_domain(struct tc_domain *domain, int new_nice);
 
 typedef int (*diagnostic_fn)(const char *format, va_list ap);
 void tc_set_diagnostic_fn(diagnostic_fn f);
@@ -166,6 +168,8 @@ static inline char *tc_thread_name(struct tc_thread *tc)
 void tc_thread_pool_new(struct tc_thread_pool *threads, void (*func)(void *), void *data, char* name, int excess);
 enum tc_rv tc_thread_pool_wait(struct tc_thread_pool *threads);
 int tc_thread_worker_nr(struct tc_thread *tc);
+
+void tc_thread_pool_new_in_domain(struct tc_thread_pool *threads, void (*func)(void *), void *data, char* name, int excess, struct tc_domain *sched);
 
 /* FDs
    Register each fd you want to wait on. if there are multiple concurrent
@@ -271,9 +275,11 @@ extern __thread int _caller_line;
 
 
 static inline void tc_event_init(struct event *e) {
+	extern __thread struct tc_domain *tc_this_pthread_domain;
 	e->el = NULL;
 	e->acked = 0;
 	e->next_in_stack = NULL;
+	e->domain = tc_this_pthread_domain;
 }
 
 
