@@ -1359,10 +1359,11 @@ struct tc_thread *tc_thread_new(void (*func)(void *), void *data, char* name)
 	return tc_thread_new_ref(func, data, name).thr;
 }
 
-struct tc_thread_ref tc_thread_new_ref(void (*func)(void *), void *data, char* name)
+struct tc_thread_ref tc_thread_new_ref_in_domain(void (*func)(void *), void *data, char* name, struct tc_domain *domain)
 {
 	struct tc_thread_ref t = { 0 };
 
+	WITH_OTHER_DOMAIN_BEGIN(domain);
 	t.thr = _tc_thread_new(func, data, name);
 	t.domain = domain;
 
@@ -1373,9 +1374,14 @@ struct tc_thread_ref tc_thread_new_ref(void (*func)(void *), void *data, char* n
 		t.id = t.thr->id;
 	}
 
+	WITH_OTHER_DOMAIN_END();
 	return t;
 }
 
+struct tc_thread_ref tc_thread_new_ref(void (*func)(void *), void *data, char* name)
+{
+	return tc_thread_new_ref_in_domain(func, data, name, tc_this_pthread_domain);
+}
 
 void tc_thread_pool_new_in_domain(struct tc_thread_pool *threads, void (*func)(void *), void *data, char* name, int excess, struct tc_domain *domain)
 {

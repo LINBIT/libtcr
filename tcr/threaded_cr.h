@@ -149,6 +149,7 @@ void tc_set_stack_size(int size);
  */
 struct tc_thread *tc_thread_new(void (*func)(void *), void *data, char* name);
 struct tc_thread_ref tc_thread_new_ref(void (*func)(void *), void *data, char* name);
+struct tc_thread_ref tc_thread_new_ref_in_domain(void (*func)(void *), void *data, char* name, struct tc_domain *domain);
 enum tc_rv tc_thread_wait_ref(struct tc_thread_ref *tc_r);
 static inline enum tc_rv tc_thread_wait(struct tc_thread *tc)
 {
