@@ -1049,7 +1049,7 @@ void tc_init()
 
 
 	event_list_init(&tc_this_pthread_domain->immediate);
-	LIST_INIT(&tc_this_pthread_domain->threads);
+	LIST_INIT(&tc_this_pthread_domain->threads.list);
 	spin_lock_init(&tc_this_pthread_domain->lock);
 	if (SIGNAL_FOR_WAKEUP > SIGRTMAX)
 		msg_exit(1, "libTCR: bad value for SIGNAL_FOR_WAKEUP\n");
@@ -1384,7 +1384,8 @@ void tc_thread_pool_new_in_domain(struct tc_thread_pool *threads, void (*func)(v
 
 	WITH_OTHER_DOMAIN_BEGIN(domain);
 
-	LIST_INIT(threads);
+	threads->domain = domain;
+	LIST_INIT(&threads->list);
 	for (i = 0; i < tc_this_pthread_domain->nr_of_workers + excess; i++) {
 		if (asprintf(&ename, name, i) == -1)
 			msg_exit(1, "allocation in asprintf() failed\n");
@@ -1397,7 +1398,7 @@ void tc_thread_pool_new_in_domain(struct tc_thread_pool *threads, void (*func)(v
 			tc->flags |= TF_AFFINE;
 		}
 		spin_lock(&tc_this_pthread_domain->lock);
-		LIST_INSERT_HEAD(threads, tc, threads_chain);
+		LIST_INSERT_HEAD(&threads->list, tc, threads_chain);
 		spin_unlock(&tc_this_pthread_domain->lock);
 		add_event_cr(&tc->e, 0, EF_READY, tc);
 	}
@@ -1415,10 +1416,13 @@ enum tc_rv tc_thread_pool_wait(struct tc_thread_pool *threads)
 {
 	struct tc_thread *tc;
 	enum tc_rv r, rv = RV_THREAD_NA;
+	struct tc_domain *d;
 
-	spin_lock(&tc_this_pthread_domain->lock);
-	while ((tc = LIST_FIRST(threads))) {
-		spin_unlock(&tc_this_pthread_domain->lock);
+	d = threads->domain;
+
+	spin_lock(&d->lock);
+	while ((tc = LIST_FIRST(&threads->list))) {
+		spin_unlock(&d->lock);
 		r = tc_thread_wait(tc);
 		switch(r) {
 		case RV_INTR:
@@ -1430,9 +1434,9 @@ enum tc_rv tc_thread_pool_wait(struct tc_thread_pool *threads)
 		case RV_THREAD_NA:
 			break;
 		}
-		spin_lock(&tc_this_pthread_domain->lock);
+		spin_lock(&d->lock);
 	}
-	spin_unlock(&tc_this_pthread_domain->lock);
+	spin_unlock(&d->lock);
 
 	return RV_OK;
 }
@@ -1706,7 +1710,7 @@ static enum tc_rv _thread_valid(struct tc_domain *domain, struct tc_thread *look
 {
 	struct tc_thread *tc;
 
-	LIST_FOREACH(tc, &domain->threads, tc_chain) {
+	LIST_FOREACH(tc, &domain->threads.list, tc_chain) {
 		if (tc == look_for)
 			return RV_OK;
 	}
@@ -2659,7 +2663,7 @@ void tc_dump_threads(void)
 {
 	struct tc_thread *t;
 
-	LIST_FOREACH(t, &tc_this_pthread_domain->threads, tc_chain) {
+	LIST_FOREACH(t, &tc_this_pthread_domain->threads.list, tc_chain) {
 		if (t->sleep_line)
 			msg("Thread %s(%p) stack at %p, waiting at %s:%d\n", t->name, t, cr_get_stack_from_cr(t->cr), t->sleep_file, t->sleep_line);
 		else

@@ -105,7 +105,11 @@ struct tc_rw_lock {
 };
 
 struct tc_thread;
-LIST_HEAD(tc_thread_pool, tc_thread);
+LIST_HEAD(_tc_thread_list, tc_thread);
+struct tc_thread_pool {
+	struct tc_domain *domain;
+	struct _tc_thread_list list;
+};
 
 /* When a thread gets created, quits, and another one is created, the second
  * one might have the same (struct tc_thread*) as the first. To protect against
