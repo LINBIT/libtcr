@@ -1478,17 +1478,17 @@ static void _tc_fd_init(struct tc_fd *tcfd, int fd)
 	if (tcfd_epoll_ctl(EPOLL_CTL_ADD, tcfd, &epe) == 0)
 		return;
 
-	err = "epoll_ctl(%d) failed with %m\n";
+	err = "epoll_ctl failed with %m\n";
 	goto invalid;
 
 fcntl_err:
-		err = "fcntl(%d) failed: %m\n";
+		err = "fcntl() failed: %m\n";
 
 invalid:
 	atomic_set(&tcfd->err_hup, 1);
 	/* We process the message last, so that the fd is dead as soon as possible.
 	 * */
-	msg(err, fd);
+	msg(err);
 	return;
 }
 
