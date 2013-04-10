@@ -1333,13 +1333,17 @@ fail2:
 
 static void _tc_thread_insert(struct tc_thread *tc)
 {
-	spin_lock(&tc_this_pthread_domain->lock);
-	LIST_INSERT_HEAD(&tc_this_pthread_domain->threads, tc, tc_chain);
-	tc_this_pthread_domain->last_thread_id++;
-	if (tc_this_pthread_domain->last_thread_id == 0)
-		tc_this_pthread_domain->last_thread_id = 1;
-	tc->id = tc_this_pthread_domain->last_thread_id;
-	spin_unlock(&tc_this_pthread_domain->lock);
+	struct tc_domain *d;
+
+	d = tc_this_pthread_domain;
+	spin_lock(&d->lock);
+	d->threads.domain = d;
+	LIST_INSERT_HEAD(&d->threads.list, tc, tc_chain);
+	d->last_thread_id++;
+	if (d->last_thread_id == 0)
+		d->last_thread_id = 1;
+	tc->id = d->last_thread_id;
+	spin_unlock(&d->lock);
 }
 
 
