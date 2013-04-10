@@ -1973,16 +1973,17 @@ void tc_signal_fire(struct tc_signal *s)
 }
 
 
-void tc_renice_domain(struct tc_domain *sched, int new_nice)
+void tc_renice_domain(struct tc_domain *d, int new_nice)
 {
 	struct worker_struct *w;
-	spin_lock(&sched->worker_list_lock);
-	LIST_FOREACH(w, &tc_this_pthread_domain->worker_list, worker_chain) {
+
+	spin_lock(&d->worker_list_lock);
+	LIST_FOREACH(w, &d->worker_list, worker_chain) {
 		/* syscall within spinlock isn't nice --
 		 * but that should be fast enough. */
 		setpriority(PRIO_PROCESS, w->tid, new_nice);
 	}
-	spin_unlock(&sched->worker_list_lock);
+	spin_unlock(&d->worker_list_lock);
 }
 
 
