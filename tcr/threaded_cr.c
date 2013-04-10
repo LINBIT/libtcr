@@ -2133,6 +2133,9 @@ void tc_rw_init(struct tc_rw_lock *l)
 	tc_waitq_init(&l->wr_wq);
 }
 
+/* This "slow" way of locking a mutex is needed to guarantee fairness against
+ * a writer; doing just an atomic_inc() and checking whether it's allowed might
+ * prohibit writers from _ever_ running.  */
 enum tc_rv tc_rw_r_lock(struct tc_rw_lock *l)
 {
 	enum tc_rv rv;
