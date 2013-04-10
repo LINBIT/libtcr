@@ -117,6 +117,7 @@ struct tc_thread_pool {
  * can use for verification - see tc_thread_new_ref() and tc_thread_wait_ref(). */
 struct tc_thread_ref {
 	struct tc_thread *thr;
+	struct tc_domain *domain;
 	int id;
 };
 
@@ -152,7 +153,9 @@ enum tc_rv tc_thread_wait_ref(struct tc_thread_ref *tc_r);
 static inline enum tc_rv tc_thread_wait(struct tc_thread *tc)
 {
 	struct tc_thread_ref r;
+	extern __thread struct tc_domain *tc_this_pthread_domain;
 	r.thr = tc;
+	r.domain = tc_this_pthread_domain;
 	r.id = 0;
 	return tc_thread_wait_ref(&r);
 }

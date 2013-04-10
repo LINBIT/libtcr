@@ -1364,6 +1364,7 @@ struct tc_thread_ref tc_thread_new_ref(void (*func)(void *), void *data, char* n
 	struct tc_thread_ref t = { 0 };
 
 	t.thr = _tc_thread_new(func, data, name);
+	t.domain = domain;
 
 	if (t.thr) {
 		add_event_cr(&t.thr->e, 0, EF_READY, t.thr);
@@ -1727,7 +1728,7 @@ enum tc_rv tc_thread_wait_ref(struct tc_thread_ref *_ref)
 	if (!ref.thr)
 		return RV_OK;
 
-	d = ref.thr->domain;
+	d = ref.domain;
 	tc_event_init(&e);
 	spin_lock(&d->lock);
 	rv = _thread_valid(d, ref.thr);  /* might have already exited */
