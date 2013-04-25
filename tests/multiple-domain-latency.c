@@ -174,8 +174,11 @@ void starter(void *unused)
 
 	f = tc_thread_new_ref( timestamp_receiver, NULL, "high");
 	s = tc_thread_new_ref_in_domain( timestamp_receiver, (void*)1, "low", sched2);
-	tc_thread_new( signalling, NULL, "writer");
 
+
+
+	tc_dump_threads();
+	tc_thread_new( signalling, NULL, "writer");
 
 	tc_thread_wait_ref(&f);
 	tc_thread_wait_ref(&s);
