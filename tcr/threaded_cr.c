@@ -159,6 +159,9 @@ struct tc_domain {
 	spinlock_t worker_list_lock;
 	struct worker_list_t worker_list;
 	pthread_t *pthreads;
+
+	/* a HEAD-less list. */
+	SLIST_ENTRY(tc_domain) domain_chain;
 };
 
 struct common_data_t {
@@ -1182,6 +1185,10 @@ struct tc_domain *tc_new_domain(int nr_of_workers)
 	new_domain(&n_d);
 
 	_setup_domain(n_d, nr_of_workers);
+
+	/* Is this racy? */
+	SLIST_INSERT_AFTER(tc_this_pthread_domain, n_d, domain_chain);
+
 	start_pthreads(n_d, 0);
 	return n_d;
 }
@@ -1194,6 +1201,9 @@ void tc_run(void (*func)(void *), void *data, char* name, int nr_of_workers)
 
 	new_domain(&n_d);
 	_setup_domain(n_d, nr_of_workers);
+
+	/* There's no SLIST_INIT_ENTRY(). */
+	n_d->domain_chain.sle_next = n_d;
 
 	/* New scheduler domain becomes "default" */
 	tc_this_pthread_domain = n_d;
@@ -2669,13 +2679,19 @@ int tc_aio_sync(int fd, int data_only)
 void tc_dump_threads(void)
 {
 	struct tc_thread *t;
+	struct tc_domain *d;
 
-	LIST_FOREACH(t, &tc_this_pthread_domain->threads.list, tc_chain) {
-		if (t->sleep_line)
-			msg("Thread %s(%p) stack at %p, waiting at %s:%d\n", t->name, t, cr_get_stack_from_cr(t->cr), t->sleep_file, t->sleep_line);
-		else
-			msg("Thread %s(%p) stack at %p, running\n", t->name, t, cr_get_stack_from_cr(t->cr));
-	}
+	d = tc_this_pthread_domain;
+	do  {
+		msg("TC domain %p:\n", d);
+		LIST_FOREACH(t, &tc_this_pthread_domain->threads.list, tc_chain) {
+			if (t->sleep_line)
+				msg("Thread %s(%p) stack at %p, waiting at %s:%d\n", t->name, t, cr_get_stack_from_cr(t->cr), t->sleep_file, t->sleep_line);
+			else
+				msg("Thread %s(%p) stack at %p, running\n", t->name, t, cr_get_stack_from_cr(t->cr));
+		}
+		d = SLIST_NEXT(d, domain_chain);
+	} while (tc_this_pthread_domain != d);
 }
 
 #endif
