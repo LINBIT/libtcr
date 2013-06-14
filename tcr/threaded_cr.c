@@ -149,6 +149,7 @@ struct tc_domain {
 	diagnostic_fn diagnostic;
 	int stack_size;            /* stack size for new tc_threads */
 	int last_thread_id;
+	int nice_level;
 
 	atomic_t timer_sleepers;
 	struct tc_fd timer_tcfd;
@@ -224,6 +225,7 @@ static void new_domain(struct tc_domain **pd)
 		tc_this_pthread_domain->diagnostic :
 		fprintf_stderr;
 	d->stack_size = DEFAULT_STACK_SIZE;
+	d->nice_level = getpriority(PRIO_PROCESS, 0);
 }
 
 
@@ -1038,6 +1040,8 @@ found_cpu:
 	spin_lock(&tc_this_pthread_domain->worker_list_lock);
 	LIST_INSERT_HEAD(&tc_this_pthread_domain->worker_list, &worker, worker_chain);
 	spin_unlock(&tc_this_pthread_domain->worker_list_lock);
+	setpriority(PRIO_PROCESS, worker.tid, tc_this_pthread_domain->nice_level);
+
 
 }
 
@@ -2044,6 +2048,7 @@ void tc_renice_domain(struct tc_domain *d, int new_nice)
 {
 	struct worker_struct *w;
 
+	d->nice_level = new_nice;
 	spin_lock(&d->worker_list_lock);
 	LIST_FOREACH(w, &d->worker_list, worker_chain) {
 		/* syscall within spinlock isn't nice --
