@@ -1415,14 +1415,14 @@ void tc_thread_pool_new_in_domain(struct tc_thread_pool *threads, void (*func)(v
 
 	threads->domain = domain;
 	LIST_INIT(&threads->list);
-	for (i = 0; i < tc_this_pthread_domain->nr_of_workers + excess; i++) {
+	for (i = 0; i < domain->nr_of_workers + excess; i++) {
 		if (asprintf(&ename, name, i) == -1)
 			msg_exit(1, "allocation in asprintf() failed\n");
 		tc = _tc_thread_new(func, data, ename);
 		if (!tc)
 			continue;
 		tc->flags |= TF_THREADS | TF_FREE_NAME;
-		if (i < tc_this_pthread_domain->nr_of_workers) {
+		if (i < domain->nr_of_workers) {
 			tc->worker_nr = i;
 			tc->flags |= TF_AFFINE;
 		}
@@ -1431,7 +1431,7 @@ void tc_thread_pool_new_in_domain(struct tc_thread_pool *threads, void (*func)(v
 		spin_unlock(&tc_this_pthread_domain->lock);
 		add_event_cr(&tc->e, 0, EF_READY, tc);
 	}
-	iwi_immediate(tc_this_pthread_domain);
+	iwi_immediate(domain);
 
 	WITH_OTHER_DOMAIN_END();
 }
