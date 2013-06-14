@@ -1182,6 +1182,7 @@ static void start_pthreads(struct tc_domain *n_d, int reuse_pthread)
 	}
 	else
 		i = 0;
+
 	for (; i < n_d->nr_of_workers; i++)
 		pthread_create(n_d->pthreads + i, NULL, worker_pthread, n_d);
 }
@@ -1873,46 +1874,145 @@ void tc_waitq_wakeup_one(struct tc_waitq *wq)
 {
 	int wake = 0;
 	struct event *e;
+	struct tc_domain *dom;
+	int res;
 
+	/* We need to lock the immediate queue first; but it might be the wrong
+	 * one. */
+start:
 	spin_lock(&tc_this_pthread_domain->immediate.lock);
 	spin_lock(&wq->waiters.lock);
+	dom = tc_this_pthread_domain;
 	if (!CIRCLEQ_EMPTY(&wq->waiters.events)) {
 		e = CIRCLEQ_FIRST(&wq->waiters.events);
+		dom = e->domain;
+
+		if (dom != tc_this_pthread_domain) {
+			/* avoid deadlocks */
+			res = spin_trylock(&dom->immediate.lock);
+			if (!res) {
+				spin_unlock(&tc_this_pthread_domain->immediate.lock);
+				spin_unlock(&wq->waiters.lock);
+				goto start;
+			}
+
+			spin_unlock(&tc_this_pthread_domain->immediate.lock);
+		}
+
+
 		CIRCLEQ_REMOVE(&wq->waiters.events, e, e_chain);
-		e->el = &tc_this_pthread_domain->immediate;
-		CIRCLEQ_INSERT_HEAD(&tc_this_pthread_domain->immediate.events, e, e_chain);
+		e->el = &dom->immediate;
+		CIRCLEQ_INSERT_HEAD(&dom->immediate.events, e, e_chain);
 		wake = 1;
 	}
 	spin_unlock(&wq->waiters.lock);
-	spin_unlock(&tc_this_pthread_domain->immediate.lock);
+	spin_unlock(&dom->immediate.lock);
 
 	if (wake)
-		iwi_immediate(tc_thread_worker_nr);
+		iwi_immediate(dom);
 }
+
+/* What's a bit ugly is that "elm" could be specified as
+ * CIRCLEQ_FIRST(head) - then setting head->cqh_first would
+ * destroy the value for elm!
+ * This can't be a function (generally), because the types
+ * might be _any_ pointers.....
+ * I WANT GENSYMS! (and clean macros.) */
+#define	CIRCLEQ_CUT_BEFORE(head, elm, new_cq, field) do {	\
+		typeof (head) __t_head = head;						\
+		typeof (elm) __t_elm  = elm;						\
+		typeof (new_cq)  __t_new  = new_cq;					\
+		typeof (elm) head_last; /* or head_new_last? */		\
+		typeof (elm) new_last; /* or new_cq_last? */		\
+		assert(__t_elm);									\
+		assert(!CIRCLEQ_EMPTY(__t_head));					\
+		assert(__t_elm != (void*)__t_head);					\
+		head_last = (__t_elm)->field.cqe_prev;				\
+		new_last = __t_head->cqh_last;						\
+		/* Operations for the old cq */						\
+		__t_head->cqh_last = head_last;						\
+		if (head_last == (void*)__t_head)					\
+			__t_head->cqh_first = (void*)__t_head;			\
+		else												\
+			head_last->field.cqe_next = (void*)__t_head;	\
+		/* Operations for the new cq */						\
+		__t_new->cqh_first = (__t_elm);						\
+		__t_new->cqh_last = new_last;						\
+		new_last->field.cqe_next = (void*)__t_new;			\
+		(__t_elm)->field.cqe_prev = (void*)__t_new;			\
+} while (0)
 
 void tc_waitq_wakeup_all(struct tc_waitq *wq)
 {
-	struct event *e;
-	int wake = 0;
+	struct event *e, *next;
+	int wake;
+	struct tc_domain *dom;
+	struct events current;
 
+
+	wake = 0;
+
+	/* The lock order is immediate, waitq.
+	 * Some events might be from other domains, so, to avoid deadlocks,
+	 * we simply take the whole waitq in our hands, and process it
+	 * for each domain. */
 	spin_lock(&tc_this_pthread_domain->immediate.lock);
 	spin_lock(&wq->waiters.lock);
-	while(!CIRCLEQ_EMPTY(&wq->waiters.events)) {
-		e = CIRCLEQ_FIRST(&wq->waiters.events);
-		CIRCLEQ_REMOVE(&wq->waiters.events, e, e_chain);
-		e->el = &tc_this_pthread_domain->immediate;
-		CIRCLEQ_INSERT_HEAD(&tc_this_pthread_domain->immediate.events, e, e_chain);
-		wake++;
-	}
+	if (CIRCLEQ_EMPTY(&wq->waiters.events))
+		CIRCLEQ_INIT(&current);
+	else
+		CIRCLEQ_CUT_BEFORE(&wq->waiters.events,
+				CIRCLEQ_FIRST(&wq->waiters.events),
+				&current, e_chain);
+	/* Now the events belong to us. */
 	spin_unlock(&wq->waiters.lock);
-	spin_unlock(&tc_this_pthread_domain->immediate.lock);
 
-	/* If wake is non-zero, we publish that there's something to be done.
-	 * The iwi_immediate() would only wakeup _idle_ workers, so (if there's
-	 * none) the event might get lost; the _iwi_immediate() function makes sure
-	 * the next epoll_wait() call terminates. */
+	/* The locked domain. */
+	dom = tc_this_pthread_domain;
+
+	/* We try to start with the current domain, as it's already locked.
+	 * That might be wrong if _all_ events belong to different domains. */
+	if (CIRCLEQ_EMPTY(&current))
+		goto done_unlock_dom;
+
+choose_a_domain:
+	e = CIRCLEQ_FIRST(&current);
+	if (e->domain != dom) {
+		/* Hmm, perhaps use the other domain. */
+		spin_unlock(&dom->immediate.lock);
+		dom = e->domain;
+		/* Now we _only_ need the immediate lock, so we should be fine. */
+		spin_lock(&dom->immediate.lock);
+	}
+
+	wake = 0;
+	/* CIRCLEQ_FOREACH is incompatible with CIRCLEQ_REMOVE. */
+	e = current.cqh_first;
+	while (e != (const void *)&current) {
+		next = e->e_chain.cqe_next;
+
+		if (e->domain == dom) {
+			CIRCLEQ_REMOVE(&current, e, e_chain);
+			e->el = &dom->immediate;
+			CIRCLEQ_INSERT_HEAD(&dom->immediate.events, e, e_chain);
+			wake++;
+		}
+
+		e = next;
+	}
+
+done_unlock_dom:
+	/* This domain is done. */
+	spin_unlock(&dom->immediate.lock);
 	if (wake)
-		_iwi_immediate(tc_thread_worker_nr);
+		_iwi_immediate(dom);
+	/* not locked any longer. */
+	dom = NULL;
+
+	if (CIRCLEQ_EMPTY(&current))
+		return;
+
+	goto choose_a_domain;
 }
 
 
