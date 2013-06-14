@@ -311,11 +311,14 @@ static __uint32_t calc_epoll_event_mask(struct events *es)
 /* must_hold tcfd->lock */
 static void move_to_immediate(struct event *e)
 {
-	spin_lock(&tc_this_pthread_domain->immediate.lock);
+	struct tc_domain *dom;
+
+	dom = e->domain;
+	spin_lock(&dom->immediate.lock);
 	CIRCLEQ_REMOVE(&e->el->events, e, e_chain);
-	e->el = &tc_this_pthread_domain->immediate;
-	CIRCLEQ_INSERT_TAIL(&tc_this_pthread_domain->immediate.events, e, e_chain);
-	spin_unlock(&tc_this_pthread_domain->immediate.lock);
+	e->el = &dom->immediate;
+	CIRCLEQ_INSERT_TAIL(&dom->immediate.events, e, e_chain);
+	spin_unlock(&dom->immediate.lock);
 }
 
 /* must_hold tcfd->lock */
