@@ -198,7 +198,7 @@ static void signal_cancel_pending();
 static void worker_prepare_sleep();
 static void worker_after_sleep();
 static void store_for_later_free(struct tc_fd *tcfd);
-static void iwi_immediate();
+static void iwi_immediate(struct tc_domain *dom);
 static int fprintf_stderr(const char *fmt, va_list ap);
 static void _tc_fd_init(struct tc_fd *tcfd, int fd);
 static void _remove_event(struct event *e, struct event_list *el);
@@ -516,9 +516,12 @@ void remove_event_fd(struct event *e, struct tc_fd *tcfd)
 	remove_event(e);
 }
 
-static void _iwi_immediate();
+static void _iwi_immediate(struct tc_domain *dom);
 void tc_thread_free(struct tc_thread *tc)
 {
+	struct tc_domain *dom;
+
+	dom = tc->domain;
 	spin_lock(&tc->running); /* Make sure it has reached switch_to(), after posting EF_EXITING */
 	tc_waitq_unregister(&tc->exit_waiters);
 	cr_delete(tc->cr);
@@ -527,7 +530,7 @@ void tc_thread_free(struct tc_thread *tc)
 		free(tc->name);
 	memset(tc, 0xaf, sizeof(*tc));
 	free(tc);
-	_iwi_immediate();
+	_iwi_immediate(dom);
 }
 
 static void _switch_to(struct tc_thread *new)
@@ -662,7 +665,7 @@ search_loop_locked:
 		case EF_READY:
 		case EF_SIGNAL:
 			if (!CIRCLEQ_EMPTY(&tc_this_pthread_domain->immediate.events))
-				iwi_immediate(); /* More work available, wakeup an worker */
+				iwi_immediate(tc_this_pthread_domain); /* More work available, wakeup an worker */
 			spin_unlock(&tc_this_pthread_domain->immediate.lock);
 			switch_to(tc);
 			return 1;
@@ -704,20 +707,19 @@ static void rearm_immediate()
 	arm_immediate(EPOLL_CTL_MOD);
 }
 
-static void _iwi_immediate()
+static void _iwi_immediate(struct tc_domain *dom)
 {
 	eventfd_t c = 1;
 
-	if (write(tc_this_pthread_domain->immediate_fd, &c, sizeof(c)) != sizeof(c))
+	if (write(dom->immediate_fd, &c, sizeof(c)) != sizeof(c))
 		msg_exit(1, "write() failed with: %m\n");
 }
 
-static void iwi_immediate()
+static void iwi_immediate(struct tc_domain *dom)
 {
 	/* Some other worker should please process the queued immediate events. */
-
-	if (!CLIST_EMPTY(&tc_this_pthread_domain->sleeping_workers)) {
-		_iwi_immediate();
+	if (!CLIST_EMPTY(&dom->sleeping_workers)) {
+		_iwi_immediate(dom);
 	}
 }
 
@@ -1121,7 +1123,7 @@ static void *worker_pthread(void *_s)
 	tc_worker_init();
 	tc_thread_wait_ref(&tc_main); /* calls tc_scheduler() */
 
-	_iwi_immediate(); /* All other workers need to get woken UNCONDITIONALLY
+	_iwi_immediate(tc_this_pthread_domain); /* All other workers need to get woken UNCONDITIONALLY
 			     So that the complete program can terminate */
 	return NULL;
 }
@@ -1287,7 +1289,7 @@ void tc_die()
 	tc_waitq_wakeup_all(&tc->exit_waiters);
 
 	add_event_cr(&tc->e, 0, EF_EXITING, tc);  /* The scheduler will free me */
-	iwi_immediate();
+	iwi_immediate(tc_this_pthread_domain);
 	_switch_to(&worker.sched_p2); /* like tc_scheduler(); but avoids deadlocks */
 	msg_exit(1, "tc_scheduler() returned in tc_die() [flags = %d]\n", &tc->flags);
 }
@@ -1389,7 +1391,7 @@ struct tc_thread_ref tc_thread_new_ref_in_domain(void (*func)(void *), void *dat
 
 	if (t.thr) {
 		add_event_cr(&t.thr->e, 0, EF_READY, t.thr);
-		iwi_immediate();
+		iwi_immediate(tc_this_pthread_domain);
 
 		t.id = t.thr->id;
 	}
@@ -1429,7 +1431,7 @@ void tc_thread_pool_new_in_domain(struct tc_thread_pool *threads, void (*func)(v
 		spin_unlock(&tc_this_pthread_domain->lock);
 		add_event_cr(&tc->e, 0, EF_READY, tc);
 	}
-	iwi_immediate();
+	iwi_immediate(tc_this_pthread_domain);
 
 	WITH_OTHER_DOMAIN_END();
 }
@@ -1882,7 +1884,7 @@ void tc_waitq_wakeup_one(struct tc_waitq *wq)
 	spin_unlock(&tc_this_pthread_domain->immediate.lock);
 
 	if (wake)
-		iwi_immediate();
+		iwi_immediate(tc_thread_worker_nr);
 }
 
 void tc_waitq_wakeup_all(struct tc_waitq *wq)
@@ -1907,7 +1909,7 @@ void tc_waitq_wakeup_all(struct tc_waitq *wq)
 	 * none) the event might get lost; the _iwi_immediate() function makes sure
 	 * the next epoll_wait() call terminates. */
 	if (wake)
-		_iwi_immediate();
+		_iwi_immediate(tc_thread_worker_nr);
 }
 
 
