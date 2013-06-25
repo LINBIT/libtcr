@@ -13,15 +13,17 @@ TARGETS += one-thread-many-events aio-test
 TARGETS += multiple-domains multiple-domain-latency
 SHELL	:= /bin/bash
 
+QUIET	?= @
+
 all: $(TARGETS)
 
 .SUFFIXES: .o
 
 %.o : %.c
-	@$(CC) -c -o $@ $^ $(CFLAGS)
+	$(QUIET)$(CC) -c -o $@ $^ $(CFLAGS)
 
 % : %.o
-	@$(CC) -o $@ $^ $(LDFLAGS)
+	$(QUIET)$(CC) -o $@ $^ $(LDFLAGS)
 
 clean:
 	rm -f *.o $(TARGETS)
@@ -36,9 +38,9 @@ RESULT_PATH	?= ./
 
 # Non-interactive
 run: 
-	@echo Running tests.
+	$(QUIET)echo Running tests.
 	$(MAKE) $(addprefix $(RESULT_PATH), $(TESTS_RESULTS))
-	@echo Fin.
+	$(QUIET)echo Fin.
 
 rrun: clean-tests run
 
@@ -57,34 +59,34 @@ endef
 
 $(RESULT_PATH)%.txt: %
 	$(PRE)
-	@./$< &> $@.tmp
+	$(QUIET)./$< &> $@.tmp
 	$(POST)
 
 # Should just echo with delay
 $(RESULT_PATH)pipelined-server.txt: pipelined-server
 	$(PRE)
-	@perl -e '$$|=1; for(0 .. 100) { print "XXXX-$$$$-$$_\n"; select(undef,undef,undef,0.02); }' | ./$< &> $@.tmp
+	$(QUIET)perl -e '$$|=1; for(0 .. 100) { print "XXXX-$$$$-$$_\n"; select(undef,undef,undef,0.02); }' | ./$< &> $@.tmp
 	$(POST)
 
 $(RESULT_PATH)tc_wait_fd2.txt: tc_wait_fd2
 	$(PRE)
-	@perl -e '$$|=1; for(0 .. 1000) { print "XXXX-$$$$-$$_\n"; select(undef,undef,undef,0.02); }' | ./$< &> $@.tmp
+	$(QUIET)perl -e '$$|=1; for(0 .. 1000) { print "XXXX-$$$$-$$_\n"; select(undef,undef,undef,0.02); }' | ./$< &> $@.tmp
 	$(POST)
 
 
 $(RESULT_PATH)tc_thread_dump.txt: tc_thread_dump
 	$(PRE)
-	@(sleep 1 ; echo HA ; sleep 2) | ./$< &> $@.tmp & ( sleep 0.5 ; killall -USR1 $< ; sleep 0.5 ) && wait
+	$(QUIET)(sleep 1 ; echo HA ; sleep 2) | ./$< &> $@.tmp & ( sleep 0.5 ; killall -USR1 $< ; sleep 0.5 ) && wait
 	$(POST)
 
 $(RESULT_PATH)tc_wait_fd-roundrobin.txt: tc_wait_fd-roundrobin
 	$(PRE)
-	@perl -e '$$|=1; for(0 .. 100) { print "$$$$-$$_\n"; select(undef,undef,undef,0.5); } print "q\n";' | ./$< &> $@.tmp
+	$(QUIET)perl -e '$$|=1; for(0 .. 100) { print "$$$$-$$_\n"; select(undef,undef,undef,0.5); } print "q\n";' | ./$< &> $@.tmp
 	$(POST)
 
 $(RESULT_PATH)tc_mutex_test1.txt: tc_mutex_test1
 	$(PRE)
-	@(sleep 0.3 ; echo ) | ./$< &> $@.tmp
+	$(QUIET)(sleep 0.3 ; echo ) | ./$< &> $@.tmp
 	$(POST)
 
 
@@ -94,7 +96,7 @@ $(RESULT_PATH)tc_rwlock_signal_test.txt		\
 $(RESULT_PATH)tc_wait_fd.txt			\
 $(RESULT_PATH)main.txt				\
 $(RESULT_PATH)unix_signal.txt:
-	@echo "  unused $<"
+	$(QUIET)echo "  unused $<"
 
 # doesn't test libTCR
 other-tests:
