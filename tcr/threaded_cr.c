@@ -94,7 +94,7 @@ struct tc_thread {
 	struct tc_waitq aio_wq;
 
 #ifdef WAIT_DEBUG
-	char *sleep_file;
+	const char *sleep_file;
 	int sleep_line;
 #endif
 };
