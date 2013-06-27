@@ -11,6 +11,7 @@ TARGETS += spinlock_test waitq_race tc_mutex_test3 tc_wait_fd2
 TARGETS += new_thread_worker_event unexpected_event one-thread-two-events
 TARGETS += one-thread-many-events aio-test
 TARGETS += multiple-domains multiple-domain-latency
+TARGETS += multiple-domain-wakeup
 SHELL	:= /bin/bash
 
 QUIET	?= @
