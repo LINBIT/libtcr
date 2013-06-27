@@ -6,8 +6,8 @@
 
 typedef struct {
 	int lock;
-	char* holder;
-	char* file;
+	const char* holder;
+	const char* file;
 	int line;
 } spinlock_t;
 
