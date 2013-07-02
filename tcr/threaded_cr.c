@@ -2750,7 +2750,7 @@ void tc_dump_threads(void)
 	d = tc_this_pthread_domain;
 	do  {
 		msg("TC domain %p:\n", d);
-		LIST_FOREACH(t, &tc_this_pthread_domain->threads.list, tc_chain) {
+		LIST_FOREACH(t, &d->threads.list, tc_chain) {
 			if (t->sleep_line)
 				msg("Thread %s(%p) stack at %p, waiting at %s:%d\n", t->name, t, cr_get_stack_from_cr(t->cr), t->sleep_file, t->sleep_line);
 			else
