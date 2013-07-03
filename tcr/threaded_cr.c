@@ -1710,16 +1710,25 @@ enum tc_rv tc_mutex_lock(struct tc_mutex *m)
 	return RV_OK;
 }
 
-void tc_mutex_unlock(struct tc_mutex *m)
+void _tc_mutex_unlock(struct tc_mutex *m, int wakeup_one)
 {
 	int r;
 
 	r = atomic_sub_return(1, &m->count);
 
-	if (r > 0)
-		tc_waitq_wakeup_one(&m->wq);
+	if (r > 0) {
+		if (wakeup_one)
+			tc_waitq_wakeup_one(&m->wq);
+		else
+			tc_waitq_wakeup_all(&m->wq);
+	}
 	else if (r < 0)
 		msg_exit(1, "tc_mutex_unlocked() called on an unlocked mutex\n");
+}
+
+void tc_mutex_unlock(struct tc_mutex *m)
+{
+	_tc_mutex_unlock(m, 1);
 }
 
 enum tc_rv tc_mutex_trylock(struct tc_mutex *m)
@@ -1738,6 +1747,11 @@ void tc_mutex_destroy(struct tc_mutex *m)
 int tc_mutex_waiters(struct tc_mutex *m)
 {
 	return atomic_read(&m->count)-1;
+}
+
+void tc_rw_w_unlock(struct tc_rw_lock *l)
+{
+	_tc_mutex_unlock(&l->mutex, 0);
 }
 
 
