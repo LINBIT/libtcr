@@ -1012,6 +1012,7 @@ found_cpu:
 
 	worker.nr = i;
 	rv |= asprintf(&worker.main_thread.name, "main_thread_%d", i);
+	worker.main_thread.domain = tc_this_pthread_domain;
 	worker.main_thread.cr = cr_current();
 	cr_set_uptr(cr_current(), &worker.main_thread);
 	tc_waitq_init(&worker.main_thread.exit_waiters);
