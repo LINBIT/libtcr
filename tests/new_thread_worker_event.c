@@ -52,10 +52,8 @@ static void starter(void *unused)
 		loops--;
 	}
 
-	/*
 	tc_thread_wait(p1);
 	tc_thread_wait(p2);
-	*/
 	tc_thread_wait(p3);
 	exit(0);
 }
