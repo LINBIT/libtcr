@@ -2619,7 +2619,7 @@ int tc_aio_read(int fh, void *buffer, size_t size, off_t offset)
 		return 0;
 
 	/* There's something wrong, don't return 0. */
-	return ad->res || -1;
+	return ad->res ?: -1;
 }
 
 
