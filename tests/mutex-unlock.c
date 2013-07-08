@@ -15,7 +15,6 @@ int stop=0;
 
 static void waker(void *v)
 {
-	LL("DEF %p = waker thread", tc_current());
 	while (!stop) {
 		tc_mutex_lock(&l);
 		tc_sleep(CLOCK_MONOTONIC, 0, 10e3);
@@ -26,11 +25,9 @@ static void waker(void *v)
 }
 
 int waiter(void) {
-	LL("c is %d", c);
 	if (--c >= 0)
 		return 0;
 
-	LL("locking");
 	tc_mutex_lock(&l);
 	tc_mutex_unlock(&l);
 	return rand() & 1;
@@ -50,7 +47,6 @@ static void starter(void *unused)
 
 	tc_waitq_init(&wq);
 	tc_mutex_init(&l);
-	LL("DEF %p = looper thread", tc_current());
 	p1 = tc_thread_new(waker, NULL, "waker_valid");
 
 	for(i=0; i<100000; i++) {
