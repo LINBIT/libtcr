@@ -138,7 +138,6 @@ struct tc_domain {
 
 	spinlock_t lock;           /* protects the threads list */
 	struct tc_thread_pool threads;
-	struct event_list immediate;
 	int nr_of_workers;
 	struct clist_entry sleeping_workers; // global? would mean that sync_world gets much more expensive ...
 	int efd;                   /* epoll fd */
@@ -168,6 +167,7 @@ struct tc_domain {
 struct common_data_t {
 	cpu_set_t available_cpus;
 	atomic_t pthread_counter;
+	struct event_list immediate;
 };
 
 static struct common_data_t common = {
@@ -311,14 +311,11 @@ static __uint32_t calc_epoll_event_mask(struct events *es)
 /* must_hold tcfd->lock */
 static void move_to_immediate(struct event *e)
 {
-	struct tc_domain *dom;
-
-	dom = e->domain;
-	spin_lock(&dom->immediate.lock);
+	spin_lock(&common.immediate.lock);
 	CIRCLEQ_REMOVE(&e->el->events, e, e_chain);
-	e->el = &dom->immediate;
-	CIRCLEQ_INSERT_TAIL(&dom->immediate.events, e, e_chain);
-	spin_unlock(&dom->immediate.lock);
+	e->el = &common.immediate;
+	CIRCLEQ_INSERT_TAIL(&common.immediate.events, e, e_chain);
+	spin_unlock(&common.immediate.lock);
 }
 
 /* must_hold tcfd->lock */
@@ -509,9 +506,9 @@ static void add_event_cr(struct event *e, __uint32_t ep_events, enum tc_event_fl
 	e->ep_events = ep_events;
 	e->flags = flags;
 
-	spin_lock(&tc_this_pthread_domain->immediate.lock);
-	_add_event(e, &tc_this_pthread_domain->immediate, tc);
-	spin_unlock(&tc_this_pthread_domain->immediate.lock);
+	spin_lock(&common.immediate.lock);
+	_add_event(e, &common.immediate, tc);
+	spin_unlock(&common.immediate.lock);
 }
 
 void remove_event_fd(struct event *e, struct tc_fd *tcfd)
@@ -646,17 +643,20 @@ static int _run_immediate(int nr)
 	int wanted;
 
 search_loop:
-	spin_lock(&tc_this_pthread_domain->immediate.lock);
+	spin_lock(&common.immediate.lock);
 search_loop_locked:
 	worker.woken_by_tcfd  = NULL;
-	CIRCLEQ_FOREACH(e, &tc_this_pthread_domain->immediate.events, e_chain) {
+	CIRCLEQ_FOREACH(e, &common.immediate.events, e_chain) {
+		assert(e->domain == e->tc->domain);
+		if (e->domain != tc_this_pthread_domain)
+			continue;
 		wanted = (nr == ANY_WORKER) ||
 			(e->tc->worker_nr == nr) ||
 			(nr == FREE_WORKER ?
 			 !(e->tc->flags & TF_AFFINE) : 0);
 		if (!wanted)
 			continue;
-		_remove_event(e, &tc_this_pthread_domain->immediate);
+		_remove_event(e, &common.immediate);
 		tc = run_or_queue(e);
 		if (!tc) {
 			/* We don't know what the queue looks like, so start at the
@@ -667,13 +667,13 @@ search_loop_locked:
 		case EF_PRIORITY:
 		case EF_READY:
 		case EF_SIGNAL:
-			if (!CIRCLEQ_EMPTY(&tc_this_pthread_domain->immediate.events))
+			if (!CIRCLEQ_EMPTY(&common.immediate.events))
 				iwi_immediate(tc_this_pthread_domain); /* More work available, wakeup an worker */
-			spin_unlock(&tc_this_pthread_domain->immediate.lock);
+			spin_unlock(&common.immediate.lock);
 			switch_to(tc);
 			return 1;
 		case EF_EXITING:
-			spin_unlock(&tc_this_pthread_domain->immediate.lock);
+			spin_unlock(&common.immediate.lock);
 			tc_thread_free(e->tc);
 			/* We cannot simply take the first or next element of
 			 * tc_this_pthread_domain->immediate - we've given up the lock, and so the queue
@@ -684,7 +684,7 @@ search_loop_locked:
 			msg_exit(1, "Wrong e->flags in immediate list\n");
 		}
 	}
-	spin_unlock(&tc_this_pthread_domain->immediate.lock);
+	spin_unlock(&common.immediate.lock);
 
 	return 0;
 }
@@ -1061,7 +1061,6 @@ void tc_init()
 	int fd;
 
 
-	event_list_init(&tc_this_pthread_domain->immediate);
 	LIST_INIT(&tc_this_pthread_domain->threads.list);
 	spin_lock_init(&tc_this_pthread_domain->lock);
 	if (SIGNAL_FOR_WAKEUP > SIGRTMAX)
@@ -1208,6 +1207,8 @@ void tc_run(void (*func)(void *), void *data, char* name, int nr_of_workers)
 	int i;
 	struct tc_domain *n_d;
 
+
+	event_list_init(&common.immediate);
 
 	new_domain(&n_d);
 	_setup_domain(n_d, nr_of_workers);
@@ -1817,7 +1818,7 @@ int tc_waitq_finish_wait(struct tc_waitq *wq, struct event *e)
 	/* We need to hold the immediate lock here so that no other thread might
 	 * take the event and put it on the pending queue while we're trying to
 	 * free it. */
-	spin_lock(&tc_this_pthread_domain->immediate.lock);
+	spin_lock(&common.immediate.lock);
 	spin_lock(&tc->pending.lock);
 	was_on_top = tc->event_stack == e;
 	if (was_on_top &&
@@ -1827,9 +1828,9 @@ int tc_waitq_finish_wait(struct tc_waitq *wq, struct event *e)
 		tc->event_stack = e->next_in_stack;
 		assert((long)tc->event_stack != 0xafafafafafafafaf);
 
-		remove_event_holding_locks(e, &tc->pending, &tc_this_pthread_domain->immediate, NULL);
+		remove_event_holding_locks(e, &tc->pending, &common.immediate, NULL);
 		spin_unlock(&tc->pending.lock);
-		spin_unlock(&tc_this_pthread_domain->immediate.lock);
+		spin_unlock(&common.immediate.lock);
 		worker.woken_by_event = NULL;
 
 		return 0;
@@ -1839,9 +1840,9 @@ int tc_waitq_finish_wait(struct tc_waitq *wq, struct event *e)
 	/* We need to hold the locks here, so that no other thread can put the
 	 * signal event on the immediate queue. */
 	assert(worker.woken_by_event->flags == EF_SIGNAL);
-	was_active = (e->el == &tc->pending) || (e->el == &tc_this_pthread_domain->immediate);
-	remove_event_holding_locks(e, &tc->pending, &tc_this_pthread_domain->immediate, NULL);
-	remove_event_holding_locks(worker.woken_by_event, &tc->pending, &tc_this_pthread_domain->immediate, NULL);
+	was_active = (e->el == &tc->pending) || (e->el == &common.immediate);
+	remove_event_holding_locks(e, &tc->pending, &common.immediate, NULL);
+	remove_event_holding_locks(worker.woken_by_event, &tc->pending, &common.immediate, NULL);
 
 	if (was_active) {
 		/* We got a signal, but the expected event got active, too.
@@ -1853,7 +1854,7 @@ int tc_waitq_finish_wait(struct tc_waitq *wq, struct event *e)
 		assert((long)tc->event_stack != 0xafafafafafafafaf);
 	}
 
-	spin_unlock(&tc_this_pthread_domain->immediate.lock);
+	spin_unlock(&common.immediate.lock);
 	spin_unlock(&tc->pending.lock);
 	return !was_active;
 }
@@ -1875,38 +1876,22 @@ void tc_waitq_wakeup_one(struct tc_waitq *wq)
 	int wake = 0;
 	struct event *e;
 	struct tc_domain *dom;
-	int res;
 
 	/* We need to lock the immediate queue first; but it might be the wrong
 	 * one. */
-start:
-	spin_lock(&tc_this_pthread_domain->immediate.lock);
+	spin_lock(&common.immediate.lock);
 	spin_lock(&wq->waiters.lock);
 	dom = tc_this_pthread_domain;
 	if (!CIRCLEQ_EMPTY(&wq->waiters.events)) {
 		e = CIRCLEQ_FIRST(&wq->waiters.events);
 		dom = e->domain;
-
-		if (dom != tc_this_pthread_domain) {
-			/* avoid deadlocks */
-			res = spin_trylock(&dom->immediate.lock);
-			if (!res) {
-				spin_unlock(&tc_this_pthread_domain->immediate.lock);
-				spin_unlock(&wq->waiters.lock);
-				goto start;
-			}
-
-			spin_unlock(&tc_this_pthread_domain->immediate.lock);
-		}
-
-
 		CIRCLEQ_REMOVE(&wq->waiters.events, e, e_chain);
-		e->el = &dom->immediate;
-		CIRCLEQ_INSERT_HEAD(&dom->immediate.events, e, e_chain);
+		e->el = &common.immediate;
+		CIRCLEQ_INSERT_HEAD(&common.immediate.events, e, e_chain);
 		wake = 1;
 	}
 	spin_unlock(&wq->waiters.lock);
-	spin_unlock(&dom->immediate.lock);
+	spin_unlock(&common.immediate.lock);
 
 	if (wake)
 		iwi_immediate(dom);
@@ -1942,77 +1927,47 @@ start:
 		(__t_elm)->field.cqe_prev = (void*)__t_new;			\
 } while (0)
 
+
 void tc_waitq_wakeup_all(struct tc_waitq *wq)
 {
-	struct event *e, *next;
-	int wake;
-	struct tc_domain *dom;
-	struct events current;
+	struct event *e;
+	struct tc_domain *alerted[10], *dom;
+	int alerted_max, i;
 
-
-	wake = 0;
-
-	/* The lock order is immediate, waitq.
-	 * Some events might be from other domains, so, to avoid deadlocks,
-	 * we simply take the whole waitq in our hands, and process it
-	 * for each domain. */
-	spin_lock(&tc_this_pthread_domain->immediate.lock);
+	alerted_max = 0;
+	spin_lock(&common.immediate.lock);
 	spin_lock(&wq->waiters.lock);
-	if (CIRCLEQ_EMPTY(&wq->waiters.events))
-		CIRCLEQ_INIT(&current);
-	else
-		CIRCLEQ_CUT_BEFORE(&wq->waiters.events,
-				CIRCLEQ_FIRST(&wq->waiters.events),
-				&current, e_chain);
-	/* Now the events belong to us. */
-	spin_unlock(&wq->waiters.lock);
-
-	/* The locked domain. */
-	dom = tc_this_pthread_domain;
-
-	/* We try to start with the current domain, as it's already locked.
-	 * That might be wrong if _all_ events belong to different domains. */
-	if (CIRCLEQ_EMPTY(&current))
-		goto done_unlock_dom;
-
-choose_a_domain:
-	e = CIRCLEQ_FIRST(&current);
-	if (e->domain != dom) {
-		/* Hmm, perhaps use the other domain. */
-		spin_unlock(&dom->immediate.lock);
+	while(!CIRCLEQ_EMPTY(&wq->waiters.events)) {
+		e = CIRCLEQ_FIRST(&wq->waiters.events);
+		CIRCLEQ_REMOVE(&wq->waiters.events, e, e_chain);
+		e->el = &common.immediate;
 		dom = e->domain;
-		/* Now we _only_ need the immediate lock, so we should be fine. */
-		spin_lock(&dom->immediate.lock);
-	}
+		CIRCLEQ_INSERT_HEAD(&common.immediate.events, e, e_chain);
 
-	wake = 0;
-	/* CIRCLEQ_FOREACH is incompatible with CIRCLEQ_REMOVE. */
-	e = current.cqh_first;
-	while (e != (const void *)&current) {
-		next = e->e_chain.cqe_next;
-
-		if (e->domain == dom) {
-			CIRCLEQ_REMOVE(&current, e, e_chain);
-			e->el = &dom->immediate;
-			CIRCLEQ_INSERT_HEAD(&dom->immediate.events, e, e_chain);
-			wake++;
+		for(i=0; i<alerted_max; i++) {
+			if (alerted[i] == dom)
+				break;
 		}
-
-		e = next;
+		if (i == alerted_max) {
+			/* If there's space, remember for later alerting.
+			 * If there no more space, wakeup immediately -
+			 * but that can be multiple times. */
+			if (alerted_max < sizeof(alerted)/sizeof(alerted[0]))
+				alerted[ alerted_max++ ] = dom;
+			else
+				_iwi_immediate(dom);
+		}
 	}
+	spin_unlock(&wq->waiters.lock);
+	spin_unlock(&common.immediate.lock);
 
-done_unlock_dom:
-	/* This domain is done. */
-	spin_unlock(&dom->immediate.lock);
-	if (wake)
-		_iwi_immediate(dom);
-	/* not locked any longer. */
-	dom = NULL;
-
-	if (CIRCLEQ_EMPTY(&current))
-		return;
-
-	goto choose_a_domain;
+	/* We publish that there's something to be done.
+	 * The iwi_immediate() would only wakeup _idle_ workers, so (if there's
+	 * none) the event might get lost; the _iwi_immediate() function makes sure
+	 * the next epoll_wait() call terminates. */
+	for(i=0; i<alerted_max; i++) {
+		_iwi_immediate(alerted[i]);
+	}
 }
 
 
@@ -2081,14 +2036,14 @@ void tc_signal_unsubscribe_nofree(struct tc_signal *s, struct tc_signal_sub *ss)
 	/* The event might be added to tc_this_pthread_domain->immediate or tc->pending by some
 	 * wakeup_all call while we're waiting for the signals' wq lock, so we have
 	 * to remove it from there first.  */
-	spin_lock(&tc_this_pthread_domain->immediate.lock);
+	spin_lock(&common.immediate.lock);
 	spin_lock(&s->wq.waiters.lock);
 	spin_lock(&tc->pending.lock);
 	LIST_REMOVE(ss, se_chain);
-	remove_event_holding_locks(&ss->event, &s->wq.waiters, &tc->pending, &tc_this_pthread_domain->immediate, NULL);
+	remove_event_holding_locks(&ss->event, &s->wq.waiters, &tc->pending, &common.immediate, NULL);
 	spin_unlock(&s->wq.waiters.lock);
 	spin_unlock(&tc->pending.lock);
-	spin_unlock(&tc_this_pthread_domain->immediate.lock);
+	spin_unlock(&common.immediate.lock);
 }
 
 void tc_signal_unsubscribe(struct tc_signal *s, struct tc_signal_sub *ss)
@@ -2114,12 +2069,12 @@ static void signal_cancel_pending()
 	struct event *e;
 	struct tc_thread *tc = tc_current();
 
-	spin_lock(&tc_this_pthread_domain->immediate.lock);
-	CIRCLEQ_FOREACH(e, &tc_this_pthread_domain->immediate.events, e_chain) {
+	spin_lock(&common.immediate.lock);
+	CIRCLEQ_FOREACH(e, &common.immediate.events, e_chain) {
 		if (e->tc == tc && e->flags == EF_SIGNAL)
-			_cancel_signal(e, &tc_this_pthread_domain->immediate);
+			_cancel_signal(e, &common.immediate);
 	}
-	spin_unlock(&tc_this_pthread_domain->immediate.lock);
+	spin_unlock(&common.immediate.lock);
 
 	spin_lock(&tc->pending.lock);
 	CIRCLEQ_FOREACH(e, &tc->pending.events, e_chain) {
