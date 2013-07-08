@@ -11,11 +11,12 @@
 struct tc_waitq wq;
 struct tc_mutex l;
 int c;
+int stop=0;
 
 static void waker(void *v)
 {
 	LL("DEF %p = waker thread", tc_current());
-	while (1) {
+	while (!stop) {
 		tc_mutex_lock(&l);
 		tc_sleep(CLOCK_MONOTONIC, 0, 10e3);
 		tc_waitq_wakeup_all(&wq);
@@ -60,7 +61,10 @@ static void starter(void *unused)
 		tc_waitq_wait_event(&wq, waiter());
 	}
 
+	stop = 1;
+
 	tc_thread_wait(p1);
+	printf("done.\n");
 }
 
 /* TODO: make threads jump around on the pthreads */
