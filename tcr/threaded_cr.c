@@ -145,7 +145,6 @@ struct tc_domain {
 	spinlock_t sync_lock;
 	atomic_t sync_barrier;
 	struct tc_fd *free_list;
-	diagnostic_fn diagnostic;
 	int stack_size;            /* stack size for new tc_threads */
 	int last_thread_id;
 	int nice_level;
@@ -167,12 +166,16 @@ struct tc_domain {
 struct common_data_t {
 	cpu_set_t available_cpus;
 	atomic_t pthread_counter;
+	diagnostic_fn diagnostic;
 	struct event_list immediate;
 };
+
+static int fprintf_stderr(const char *fmt, va_list ap);
 
 static struct common_data_t common = {
 	.available_cpus = { { 0 } },
 	.pthread_counter = { 0 },
+	.diagnostic = fprintf_stderr,
 };
 
 
@@ -199,7 +202,6 @@ static void worker_prepare_sleep();
 static void worker_after_sleep();
 static void store_for_later_free(struct tc_fd *tcfd);
 static void iwi_immediate(struct tc_domain *dom);
-static int fprintf_stderr(const char *fmt, va_list ap);
 static void _tc_fd_init(struct tc_fd *tcfd, int fd);
 static void _remove_event(struct event *e, struct event_list *el);
 static struct event_list *remove_event(struct event *e);
@@ -221,9 +223,6 @@ static void new_domain(struct tc_domain **pd)
 	if (!d)
 		return;
 
-	d->diagnostic = tc_this_pthread_domain ?
-		tc_this_pthread_domain->diagnostic :
-		fprintf_stderr;
 	d->stack_size = DEFAULT_STACK_SIZE;
 	d->nice_level = getpriority(PRIO_PROCESS, 0);
 }
@@ -236,7 +235,7 @@ static int fprintf_stderr(const char *fmt, va_list ap)
 
 void tc_set_diagnostic_fn(diagnostic_fn f)
 {
-	tc_this_pthread_domain->diagnostic = f;
+	common.diagnostic = f;
 }
 
 void tc_set_stack_size(int s)
@@ -250,7 +249,7 @@ void msg_exit(int code, const char *fmt, ...)
 	va_list ap;
 
 	va_start(ap, fmt);
-	tc_this_pthread_domain->diagnostic(fmt, ap);
+	common.diagnostic(fmt, ap);
 	va_end(ap);
 
 	exit(code);
@@ -291,7 +290,7 @@ void msg(const char *fmt, ...)
 	va_list ap;
 
 	va_start(ap, fmt);
-	tc_this_pthread_domain->diagnostic(fmt, ap);
+	common.diagnostic(fmt, ap);
 	va_end(ap);
 }
 
