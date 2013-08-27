@@ -21,6 +21,7 @@ tests/epoll-no-OUT
 tests/leak_test
 tests/leak_test2
 tests/main
+tests/mutex_signal
 tests/one-thread-many-events
 tests/parallel_for
 tests/pipelined-server
