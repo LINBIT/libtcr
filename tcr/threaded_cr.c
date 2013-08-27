@@ -1856,11 +1856,13 @@ int tc_waitq_finish_wait(struct tc_waitq *wq, struct event *e)
 	assert(worker.woken_by_event->flags == EF_SIGNAL);
 	was_active = (e->el == &tc->pending) || (e->el == &common.immediate);
 	remove_event_holding_locks(e, &tc->pending, &common.immediate, NULL);
-	remove_event_holding_locks(worker.woken_by_event, &tc->pending, &common.immediate, NULL);
+	/* worker.woken_by_event should be on the signal list, and stay
+	 * there.  */
 
 	if (was_active) {
 		/* We got a signal, but the expected event got active, too.
 		 * Requeue the signal and return OK. */
+		remove_event_holding_locks(worker.woken_by_event, &tc->pending, &common.immediate, NULL);
 		_add_event(worker.woken_by_event, &tc->pending, tc);
 		worker.woken_by_event = NULL;
 
