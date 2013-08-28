@@ -47,6 +47,9 @@ void starter(void *unused)
 	fprintf(stdout, "master started (%p)\n", tc_current());
 	atomic_set(&worker_no, 0);
 
+	tc_mutex_init(&per_sched[0].m);
+	tc_mutex_init(&per_sched[1].m);
+
 	tc_thread_pool_new(&t1, worker, &per_sched[0], "worker1", 0);
 
 	sched2 = tc_new_domain(0);
