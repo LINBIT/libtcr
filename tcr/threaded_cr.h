@@ -188,6 +188,7 @@ void tc_thread_pool_new_in_domain(struct tc_thread_pool *threads, void (*func)(v
    from the fd.
  */
 struct tc_fd *tc_register_fd(int fd);
+int tc_register_fd_mem_still_blocking(int fd, struct tc_fd *tcfd);
 void tc_unregister_fd(struct tc_fd *tcfd);
 enum tc_rv tc_rearm(struct tc_fd *the_tc_fd);
 enum tc_rv _tc_wait_fd(__uint32_t ep_events, struct tc_fd *tcfd, enum tc_event_flag ef);

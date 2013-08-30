@@ -1509,17 +1509,36 @@ enum tc_rv tc_thread_pool_wait(struct tc_thread_pool *threads)
 
 /* There might be races between making the tcfd, and closing the file.
  * Just exit()ing the program isn't nice, so we simply set the tcfd as dead. */
-static void _tc_fd_init(struct tc_fd *tcfd, int fd)
+static void _tc_fd_init_keep_blocking(struct tc_fd *tcfd, int fd)
 {
 	struct epoll_event epe;
-	int arg;
-	char *err;
 
 	tcfd->fd = fd;
 	tcfd->free_list_next = NULL;
 	event_list_init(&tcfd->events);
 	tcfd->ep_events = 0;
 	atomic_set(&tcfd->err_hup, 0);
+
+	epe.events = 0;
+
+	if (tcfd_epoll_ctl(EPOLL_CTL_ADD, tcfd, &epe) == 0)
+		return;
+
+	atomic_set(&tcfd->err_hup, 1);
+	/* We process the message last, so that the fd is dead as soon as possible.
+	 * */
+	msg("epoll_ctl failed with %m\n");
+	return;
+}
+
+
+static void _tc_fd_init(struct tc_fd *tcfd, int fd)
+{
+	int arg;
+
+	_tc_fd_init_keep_blocking(tcfd, fd);
+	if (atomic_read(&tcfd->err_hup))
+		return;
 
 	/* The fd has to be non blocking */
 	arg = fcntl(fd, F_GETFL, NULL);
@@ -1531,24 +1550,17 @@ static void _tc_fd_init(struct tc_fd *tcfd, int fd)
 	if (fcntl(fd, F_SETFL, arg) < 0)
 		goto fcntl_err;
 
-	epe.events = 0;
+	return;
 
-	if (tcfd_epoll_ctl(EPOLL_CTL_ADD, tcfd, &epe) == 0)
-		return;
-
-	err = "epoll_ctl failed with %m\n";
-	goto invalid;
 
 fcntl_err:
-		err = "fcntl() failed: %m\n";
-
-invalid:
 	atomic_set(&tcfd->err_hup, 1);
 	/* We process the message last, so that the fd is dead as soon as possible.
 	 * */
-	msg(err);
+	msg("fcntl() failed: %m\n");
 	return;
 }
+
 
 struct tc_fd *tc_register_fd(int fd)
 {
@@ -1562,6 +1574,14 @@ struct tc_fd *tc_register_fd(int fd)
 
 	return tcfd;
 }
+
+
+int tc_register_fd_mem_still_blocking(int fd, struct tc_fd *tcfd)
+{
+	_tc_fd_init_keep_blocking(tcfd, fd);
+	return atomic_read(&tcfd->err_hup);
+}
+
 
 static void _tc_fd_free(struct tc_fd *tcfd)
 {
