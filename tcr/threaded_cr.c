@@ -1698,11 +1698,14 @@ enum tc_rv tc_mutex_lock(struct tc_mutex *m)
 		if (tc_waitq_finish_wait(&m->wq, &e)) {
 			atomic_dec(&m->count);
 			return RV_INTR;
-		} else
+		} else {
+			assert(!e.el);
 			return RV_OK;
+		}
 	} else {
 		worker.woken_by_event = &e;
 		tc_waitq_finish_wait(&m->wq, &e);
+		assert(!e.el);
 		return RV_OK;
 	}
 	/* The event is not usable anymore, as
@@ -1846,6 +1849,7 @@ int tc_waitq_finish_wait(struct tc_waitq *wq, struct event *e)
 		assert((long)tc->event_stack != 0xafafafafafafafaf);
 
 		remove_event_holding_locks(e, &tc->pending, &common.immediate, NULL);
+		assert(!e->el);
 		spin_unlock(&tc->pending.lock);
 		spin_unlock(&common.immediate.lock);
 		worker.woken_by_event = NULL;
@@ -1866,6 +1870,7 @@ int tc_waitq_finish_wait(struct tc_waitq *wq, struct event *e)
 		/* We got a signal, but the expected event got active, too.
 		 * Requeue the signal and return OK. */
 		remove_event_holding_locks(worker.woken_by_event, &tc->pending, &common.immediate, NULL);
+		assert(!e->el);
 		_add_event(worker.woken_by_event, &tc->pending, tc);
 		worker.woken_by_event = NULL;
 
