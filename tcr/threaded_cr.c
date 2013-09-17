@@ -89,6 +89,7 @@ struct tc_thread {
 	int id;
 
 	struct tc_domain *domain;
+	struct worker_struct *last_worker;
 
 	struct tc_aio_data aio[TC_AIO_REQUESTS_PER_TC_THREAD];
 	struct tc_waitq aio_wq;
@@ -566,6 +567,7 @@ static void switch_to(struct tc_thread *new)
 		if (!(new->flags & TF_AFFINE))
 			new->worker_nr = nr;
 	}
+	new->last_worker = &worker;
 	_switch_to(new);
 }
 
@@ -1341,6 +1343,7 @@ static struct tc_thread *_tc_thread_setup(void (*func)(void *), void *data, char
 	tc->worker_nr = FREE_WORKER;
 	tc->event_stack = NULL;
 	tc->domain = tc_this_pthread_domain;
+	tc->last_worker = &worker;
 
 	for(i=0; i<TC_AIO_REQUESTS_PER_TC_THREAD; i++)
 		tc_aio_data_init(tc->aio + i);
@@ -2767,9 +2770,9 @@ void tc_dump_threads(void)
 		msg("TC domain %p:\n", d);
 		LIST_FOREACH(t, &d->threads.list, tc_chain) {
 			if (t->sleep_line)
-				msg("Thread %s(%p) stack at %p, waiting at %s:%d\n", t->name, t, cr_get_stack_from_cr(t->cr), t->sleep_file, t->sleep_line);
+				msg("Thread %s(%p) stack at %p, worker %p=%u, waiting at %s:%d\n", t->name, t, cr_get_stack_from_cr(t->cr), t->last_worker, t->last_worker->tid, t->sleep_file, t->sleep_line);
 			else
-				msg("Thread %s(%p) stack at %p, running\n", t->name, t, cr_get_stack_from_cr(t->cr));
+				msg("Thread %s(%p) stack at %p, worker %p=%u, running\n", t->name, t, cr_get_stack_from_cr(t->cr), t->last_worker, t->last_worker->tid);
 		}
 		d = SLIST_NEXT(d, domain_chain);
 	} while (tc_this_pthread_domain != d);
