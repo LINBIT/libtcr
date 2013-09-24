@@ -2775,9 +2775,9 @@ void tc_dump_threads(void)
 		msg("TC domain %p:\n", d);
 		LIST_FOREACH(t, &d->threads.list, tc_chain) {
 			if (t->sleep_line)
-				msg("Thread %s(%p) stack at %p, worker %p=%u, waiting at %s:%d\n", t->name, t, cr_get_stack_from_cr(t->cr), t->last_worker, t->last_worker->tid, t->sleep_file, t->sleep_line);
+				msg("Thread %s(%p) stack at %p base %p, worker %p=%u, waiting at %s:%d\n", t->name, t, cr_get_sp_from_cr(t->cr), cr_get_stack_from_cr(t->cr), t->last_worker, t->last_worker->tid, t->sleep_file, t->sleep_line);
 			else
-				msg("Thread %s(%p) stack at %p, worker %p=%u, running\n", t->name, t, cr_get_stack_from_cr(t->cr), t->last_worker, t->last_worker->tid);
+				msg("Thread %s(%p) stack at %p base %p, worker %p=%u, running\n", t->name, t, cr_get_sp_from_cr(t->cr), cr_get_stack_from_cr(t->cr), t->last_worker, t->last_worker->tid);
 		}
 		d = SLIST_NEXT(d, domain_chain);
 	} while (tc_this_pthread_domain != d);

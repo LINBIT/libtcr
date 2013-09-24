@@ -184,5 +184,5 @@ void *cr_get_sp_from_cr(struct coroutine *cr)
 
 void *cr_get_stack_from_cr(struct coroutine *cr)
 {
-	return cr->ctx.uc_stack.ss_sp;
+	return cr->ctx.uc_stack.ss_sp - cr->ctx.uc_stack.ss_size;
 }
