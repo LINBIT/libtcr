@@ -254,6 +254,7 @@ void tc_signal_destroy(struct tc_signal *s);
 /* Functions for stack-allocated tc_signal_sub */
 struct tc_signal_sub *tc_signal_subscribe_exist(struct tc_signal *s, struct tc_signal_sub *ss);
 void tc_signal_unsubscribe_nofree(struct tc_signal *s, struct tc_signal_sub *ss);
+int tc_signals_since_last_call(void);
 
 /* Waitqueues.*/
 void tc_waitq_init(struct tc_waitq *wq);

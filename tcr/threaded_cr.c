@@ -87,6 +87,7 @@ struct tc_thread {
 	struct event e;  /* Used during start and stop. */
 	int worker_nr;
 	int id;
+	atomic_t signals_since_last_query;
 
 	struct tc_domain *domain;
 	struct worker_struct *last_worker;
@@ -1341,6 +1342,7 @@ static struct tc_thread *_tc_thread_setup(void (*func)(void *), void *data, char
 	tc_event_init(&tc->e);
 	event_list_init(&tc->pending);
 	tc->worker_nr = FREE_WORKER;
+	atomic_set(&tc->signals_since_last_query, 0);
 	tc->event_stack = NULL;
 	tc->domain = tc_this_pthread_domain;
 	tc->last_worker = &worker;
@@ -1968,6 +1970,11 @@ void tc_waitq_wakeup_all(struct tc_waitq *wq)
 		dom = e->domain;
 		CIRCLEQ_INSERT_HEAD(&common.immediate.events, e, e_chain);
 
+		/* Would be nice in tc_signal_fire(), but that would
+		 * need to traverse the list a second time. */
+		if (e->flags == EF_SIGNAL)
+			atomic_inc(&e->tc->signals_since_last_query);
+
 		for(i=0; i<alerted_max; i++) {
 			if (alerted[i] == dom)
 				break;
@@ -2447,6 +2454,22 @@ enum tc_rv tc_rw_w_trylock(struct tc_rw_lock *l)
 		}
 	}
 	return rv;
+}
+
+
+int tc_signals_since_last_call(void)
+{
+	int v;
+	struct tc_thread *tc;
+
+	tc = tc_current();
+
+	/* The various exchange-and-set in GCC are not universal;
+	 * they might only store a 1.
+	 * Therefore we get it via fetch and subtract. */
+	v = atomic_read(&tc->signals_since_last_query);
+	atomic_sub_return(v, &tc->signals_since_last_query);
+	return v;
 }
 
 

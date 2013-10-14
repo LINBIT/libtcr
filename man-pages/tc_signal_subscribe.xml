@@ -15,6 +15,7 @@
     <refname>tc_signal_unsubscribe</refname>
     <refname>tc_signal_fire</refname>
     <refname>tc_signal_destroy</refname>
+    <refname>tc_signals_since_last_call</refname>
 
     <refpurpose>libtcr signaling functions</refpurpose>
   </refnamediv>
@@ -37,6 +38,9 @@
     </cmdsynopsis>
     <cmdsynopsis>
       <command>void tc_signal_destroy(struct tc_signal *<replaceable>s</replaceable>);</command>
+    </cmdsynopsis>
+    <cmdsynopsis>
+      <command>int tc_signals_since_last_call(void);</command>
     </cmdsynopsis>
   </refsynopsisdiv>
 
@@ -78,6 +82,11 @@
     <para>
       <option>tc_signal_fire()</option> activates a signal once, for all subscribers of
       that signal.
+    </para>
+    <para>
+      <option>tc_signals_since_last_call()</option> can be used to get 
+      the number of signals the current tc thread received since the
+      last call to this function.
     </para>
   </refsection>
   <xi:include href="author.xml" xmlns:xi="http://www.w3.org/2001/XInclude" />
