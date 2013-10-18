@@ -1169,6 +1169,8 @@ struct tc_domain *_setup_domain(struct tc_domain *n_d, int nr_of_workers)
 		msg_exit(1, "malloc() in tc_run failed\n");
 
 	WITH_OTHER_DOMAIN_END();
+	if (tc_this_pthread_domain)
+		n_d->stack_size = tc_this_pthread_domain->stack_size;
 	return n_d;
 }
 
