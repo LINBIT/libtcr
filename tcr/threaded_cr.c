@@ -1402,10 +1402,9 @@ struct tc_thread_ref tc_thread_new_ref_in_domain(void (*func)(void *), void *dat
 	t.domain = domain;
 
 	if (t.thr) {
+		t.id = t.thr->id;
 		add_event_cr(&t.thr->e, 0, EF_READY, t.thr);
 		iwi_immediate(tc_this_pthread_domain);
-
-		t.id = t.thr->id;
 	}
 
 	WITH_OTHER_DOMAIN_END();
