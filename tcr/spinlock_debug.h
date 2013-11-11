@@ -37,7 +37,7 @@ static inline void __spin_lock(spinlock_t *l, char* holder, char* file, int line
 #endif
 		}
 
-		if ((i>>22) & 1) {/* eventually abort the program. */
+		if ((i>>27) & 1) {/* eventually abort the program. */
 			fprintf(stderr, "lock held by: \"%s\" in %s:%d\n",
 				l->holder, l->file, l->line);
 			fprintf(stderr, "\"%s\" tries to get lock in %s:%d\n",
