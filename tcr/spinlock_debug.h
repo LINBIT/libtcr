@@ -2,6 +2,7 @@
 #define SPINLOCK_DEBUG_H
 
 #include <sched.h>
+#include <syslog.h>
 #include "atomic.h"
 
 typedef struct {
@@ -18,6 +19,8 @@ typedef struct {
 void msg_exit(int code, const char *fmt, ...) __attribute__ ((__noreturn__));
 static inline void __spin_lock(spinlock_t *l, char* holder, char* file, int line)
 {
+	static time_t last_warn = 0;
+	time_t now;
 	int i = 0;
 	while (!__sync_bool_compare_and_swap(&l->lock, 0, 1)) {
 		i++;
@@ -37,16 +40,30 @@ static inline void __spin_lock(spinlock_t *l, char* holder, char* file, int line
 #endif
 		}
 
-#ifdef SPINLOCK_ABORT
 		if ((i>>27) & 1) {/* eventually abort the program. */
-			fprintf(stderr, "lock held by: \"%s\" in %s:%d\n",
-				l->holder, l->file, l->line);
-			fprintf(stderr, "\"%s\" tries to get lock in %s:%d\n",
-				holder, file, line);
-			msg_exit(1, "spinning too long in spin_lock()\n");
+			time(&now);
+			if (now - last_warn < 60)
+				continue;
 
-		}
+			last_warn = now;
+			syslog(LOG_WARNING, "libtcr in pid %d: "
+					"spinlock held by \"%s\" in %s:%d, "
+					"wanted by \"%s\"%s:%d\n",
+					getpid(),
+					l->holder, l->file, l->line,
+					holder, file, line);
+
+#ifdef SPINLOCK_ABORT
+
+			fprintf(stderr, "lock held by: \"%s\" in %s:%d\n",
+					l->holder, l->file, l->line);
+			fprintf(stderr, "\"%s\" tries to get lock in %s:%d\n",
+					holder, file, line);
+
+			msg_exit(1, "spinning too long in spin_lock()\n");
+			// *(char*)91 = 22;
 #endif
+		}
 	}
 	l->file = file;
 	l->line = line;
