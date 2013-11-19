@@ -37,6 +37,7 @@ static inline void __spin_lock(spinlock_t *l, char* holder, char* file, int line
 #endif
 		}
 
+#ifdef SPINLOCK_ABORT
 		if ((i>>27) & 1) {/* eventually abort the program. */
 			fprintf(stderr, "lock held by: \"%s\" in %s:%d\n",
 				l->holder, l->file, l->line);
@@ -45,6 +46,7 @@ static inline void __spin_lock(spinlock_t *l, char* holder, char* file, int line
 			msg_exit(1, "spinning too long in spin_lock()\n");
 
 		}
+#endif
 	}
 	l->file = file;
 	l->line = line;

@@ -28,7 +28,12 @@ AC_ARG_ENABLE([wait-debug],
 	      [AC_DEFINE(WAIT_DEBUG, 1, [Define to enable thread wait debugging])
               CFLAGS="-Wall -g"]
 )
-AC_OUTPUT([
+AC_ARG_ENABLE([spinlock-abort],
+	      [AS_HELP_STRING([--enable-spinlock-abort],
+			      [Enable spinlock abort])],
+	      [AC_DEFINE(WAIT_DEBUG, 1, [Define to enable abort()ing the program if a spinlock cannot be acquired for too long.])
+              CFLAGS="-Wall -g"]
+)AC_OUTPUT([
 tests/Makefile
 tcr/Makefile
 Makefile
