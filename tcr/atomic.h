@@ -29,7 +29,7 @@ typedef struct {
 	atomic_base_type counter;
 } atomic_t;
 
-static inline int atomic_read(atomic_t *v)
+static inline atomic_base_type atomic_read(atomic_t *v)
 {
 	__sync_synchronize();
 	return v->counter;
@@ -41,22 +41,22 @@ static inline void atomic_set(atomic_t *v, atomic_base_type i)
 	__sync_synchronize();
 }
 
-static inline int atomic_add_return(atomic_base_type i, atomic_t *v)
+static inline atomic_base_type atomic_add_return(atomic_base_type i, atomic_t *v)
 {
 	return __sync_add_and_fetch(&v->counter, i);
 }
 
-static inline int atomic_sub_return(atomic_base_type i, atomic_t *v)
+static inline atomic_base_type atomic_sub_return(atomic_base_type i, atomic_t *v)
 {
 	return __sync_sub_and_fetch(&v->counter, i);
 }
 
-static inline int atomic_set_if_eq(atomic_base_type new_val, atomic_base_type eq_val, atomic_t *v)
+static inline atomic_base_type atomic_set_if_eq(atomic_base_type new_val, atomic_base_type eq_val, atomic_t *v)
 {
 	return __sync_bool_compare_and_swap(&v->counter, eq_val, new_val);
 }
 
-static inline int atomic_swap(atomic_t *v, atomic_base_type i)
+static inline atomic_base_type atomic_swap(atomic_t *v, atomic_base_type i)
 {
 	__sync_synchronize();
 	return __sync_lock_test_and_set(&v->counter, i);
@@ -72,7 +72,7 @@ static inline void atomic_clear_bit(atomic_base_type bnr, atomic_t *v)
 	__sync_and_and_fetch(&v->counter, ~(1 << bnr));
 }
 
-static inline int atomic_test_bit(atomic_base_type bnr, atomic_t *v)
+static inline atomic_base_type atomic_test_bit(atomic_base_type bnr, atomic_t *v)
 {
 	__sync_synchronize();
 	return v->counter & (1 << bnr);
