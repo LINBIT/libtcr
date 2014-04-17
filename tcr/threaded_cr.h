@@ -468,7 +468,10 @@ static inline void tc_rw_r_unlock(struct tc_rw_lock *l)
 	if (atomic_dec(&l->readers) == 0)
 		tc_waitq_wakeup_one(&l->wr_wq);
 }
-void tc_rw_w_unlock(struct tc_rw_lock *l);
+static inline void tc_rw_w_unlock(struct tc_rw_lock *l)
+{
+	tc_mutex_unlock(&l->mutex);
+}
 static inline void tc_rw_w2r_lock(struct tc_rw_lock *l)
 {
 	/* This order is important. */
