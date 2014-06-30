@@ -612,6 +612,9 @@ static struct tc_thread *run_or_queue(struct event *e)
 	if (e == tc->event_stack)
 		goto start_thread;
 
+	/* Some event, but not the top-most event of this thread.
+	 * Eg. tc_waitq_wait_event() had a tc_sleep() within the
+	 * condition, and the outer wq has fired. */
 	{
 queue:
 		if (e->flags != EF_SIGNAL)
