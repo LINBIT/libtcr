@@ -207,6 +207,7 @@ static void iwi_immediate(struct tc_domain *dom);
 static void _tc_fd_init(struct tc_fd *tcfd, int fd);
 static void _remove_event(struct event *e, struct event_list *el);
 static struct event_list *remove_event(struct event *e);
+static void tc_waitq_wakeup_one_owner(struct tc_waitq *wq, atomic_t *woken);
 
 __thread struct tc_domain *tc_this_pthread_domain = NULL;
 /* I don't want to make "tc_this_pthread_domain" visible globally, but  */
@@ -1686,57 +1687,54 @@ static void store_for_later_free(struct tc_fd *tcfd)
 
 void tc_mutex_init(struct tc_mutex *m)
 {
-	atomic_set(&m->count, 0);
+	assert( sizeof(m->owner) == sizeof(m->a_owner));
+	m->owner = NULL;
 	tc_waitq_init(&m->wq);
 }
 
 enum tc_rv tc_mutex_lock(struct tc_mutex *m)
 {
-	struct event e;
+	int rv;
+	struct tc_thread *me = tc_current();
+	long me_l = (long)me;
 
-	if (atomic_set_if_eq(1, 0, &m->count))
-		return RV_OK;
+	if (m->owner == me)
+		msg_exit(1, "mutex %p recursively locked in thread %p\n", m, me);
 
-	tc_event_init(&e);
-	tc_waitq_prepare_to_wait(&m->wq, &e);
-	if (atomic_add_return(1, &m->count) > 1) {
-		tc_scheduler();
-		if (tc_waitq_finish_wait(&m->wq, &e)) {
-			atomic_dec(&m->count);
-			return RV_INTR;
-		} else {
-			assert(!e.el);
-			return RV_OK;
-		}
-	} else {
-		worker.woken_by_event = &e;
-		tc_waitq_finish_wait(&m->wq, &e);
-		assert(!e.el);
-		return RV_OK;
+
+	rv = RV_OK;
+	if (atomic_set_if_eq(me_l, 0, &m->a_owner)) {
+		goto got_it;
 	}
-	/* The event is not usable anymore, as
-	 * we're leaving the frame.  */
-	if (e.el)
-		remove_event(&e);
-	return RV_OK;
+
+	rv = tc_waitq_wait_event( &m->wq,
+			({ 
+			 /* Given by last owner */
+			 (m->owner == me) ||
+			 /* or got free */
+			 atomic_set_if_eq((long)tc_current(), 0, &m->a_owner);
+			 }) );
+
+got_it:
+	return rv;
 }
 
 void tc_mutex_unlock(struct tc_mutex *m)
 {
-	int r;
+	/* We cannot be sure that tc_current() == m->owner
+	 * because of lock passing. */
 
-	r = atomic_sub_return(1, &m->count);
-
-	if (r > 0)
-		tc_waitq_wakeup_one(&m->wq);
-	else if (r < 0)
+	if (!m->owner)
 		msg_exit(1, "tc_mutex_unlocked() called on an unlocked mutex\n");
+
+	tc_waitq_wakeup_one_owner(&m->wq, &m->a_owner);
 }
 
 enum tc_rv tc_mutex_trylock(struct tc_mutex *m)
 {
-	if (atomic_set_if_eq(1, 0, &m->count))
+	if (atomic_set_if_eq((long)tc_current(), 0, &m->a_owner)) {
 		return RV_OK;
+	}
 
 	return RV_FAILED;
 }
@@ -1744,11 +1742,6 @@ enum tc_rv tc_mutex_trylock(struct tc_mutex *m)
 void tc_mutex_destroy(struct tc_mutex *m)
 {
 	tc_waitq_unregister(&m->wq);
-}
-
-int tc_mutex_waiters(struct tc_mutex *m)
-{
-	return atomic_read(&m->count)-1;
 }
 
 
@@ -1887,7 +1880,7 @@ int tc_waitq_wait(struct tc_waitq *wq)
 	return rv;
 }
 
-void tc_waitq_wakeup_one(struct tc_waitq *wq)
+void tc_waitq_wakeup_one_owner(struct tc_waitq *wq, atomic_t *woken)
 {
 	int wake = 0;
 	struct event *e;
@@ -1898,19 +1891,29 @@ void tc_waitq_wakeup_one(struct tc_waitq *wq)
 	spin_lock(&common.immediate.lock);
 	spin_lock(&wq->waiters.lock);
 	dom = tc_this_pthread_domain;
-	if (!CIRCLEQ_EMPTY(&wq->waiters.events)) {
+	if (CIRCLEQ_EMPTY(&wq->waiters.events)) {
+		if (woken)
+			atomic_set(woken, 0);
+	} else {
 		e = CIRCLEQ_FIRST(&wq->waiters.events);
 		dom = e->domain;
 		CIRCLEQ_REMOVE(&wq->waiters.events, e, e_chain);
 		e->el = &common.immediate;
 		CIRCLEQ_INSERT_HEAD(&common.immediate.events, e, e_chain);
 		wake = 1;
+		if (woken)
+			atomic_set(woken, (long)e->tc);
 	}
 	spin_unlock(&wq->waiters.lock);
 	spin_unlock(&common.immediate.lock);
 
 	if (wake)
 		iwi_immediate(dom);
+}
+
+void tc_waitq_wakeup_one(struct tc_waitq *wq)
+{
+	tc_waitq_wakeup_one_owner(wq, NULL);
 }
 
 /* What's a bit ugly is that "elm" could be specified as
