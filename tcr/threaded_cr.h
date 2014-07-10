@@ -233,6 +233,7 @@ void tc_mutex_destroy(struct tc_mutex *m);
 /* A thread holding the mutex can ask whether there are other waiting threads.
  * */
 enum tc_rv tc_mutex_trylock(struct tc_mutex *m);
+void tc_mutex_change_owner(struct tc_mutex *m, struct tc_thread *who);
 
 /* Signals
    After a signal has been initialized , it might be enabled in multiple

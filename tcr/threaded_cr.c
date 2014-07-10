@@ -1692,6 +1692,26 @@ void tc_mutex_init(struct tc_mutex *m)
 	tc_waitq_init(&m->wq);
 }
 
+
+void tc_mutex_change_owner(struct tc_mutex *m, struct tc_thread *who)
+{
+	struct tc_thread *me = tc_current();
+
+	m->owner = who;
+	/*
+	 * Proxy gives thread to an opaque value, because the unlocking thread
+	 * isn't known beforehand. (Might change because of connection dropping,
+	 * for example. */
+#if 0
+	if (m->owner != me) {
+		msg_exit(1, "%p is not owner of mutex %p, can't grant\n", me, m);
+	}
+
+	atomic_set_if_eq((long)who, (long)me, &m->a_owner);
+#endif
+}
+
+
 enum tc_rv tc_mutex_lock(struct tc_mutex *m)
 {
 	int rv;
