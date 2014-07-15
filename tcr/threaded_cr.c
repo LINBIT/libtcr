@@ -498,7 +498,7 @@ inline static void _tc_event_on_tc_stack(struct event *e, struct tc_thread *tc)
 	spin_lock(&tc->pending.lock);
 	e->next_in_stack = tc->event_stack;
 	tc->event_stack = e;
-	assert((long)tc->event_stack != 0xafafafafafafafaf);
+	assert((long)tc->event_stack != (long)0xafafafafafafafaf);
 	spin_unlock(&tc->pending.lock);
 }
 
