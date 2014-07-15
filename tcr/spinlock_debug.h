@@ -3,6 +3,8 @@
 
 #include <sched.h>
 #include <syslog.h>
+#include <unistd.h>
+#include <time.h>
 #include "atomic.h"
 
 typedef struct {
