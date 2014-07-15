@@ -170,6 +170,7 @@ struct common_data_t {
 	atomic_t pthread_counter;
 	diagnostic_fn diagnostic;
 	struct event_list immediate;
+	atomic_t immediate_count;
 };
 
 static int fprintf_stderr(const char *fmt, va_list ap);
@@ -317,6 +318,7 @@ static void move_to_immediate(struct event *e)
 	CIRCLEQ_REMOVE(&e->el->events, e, e_chain);
 	e->el = &common.immediate;
 	CIRCLEQ_INSERT_TAIL(&common.immediate.events, e, e_chain);
+	atomic_inc(&common.immediate_count);
 	spin_unlock(&common.immediate.lock);
 }
 
@@ -436,6 +438,12 @@ static void event_list_init(struct event_list *el)
 static void _remove_event(struct event *e, struct event_list *el)
 {
 	CIRCLEQ_REMOVE(&el->events, e, e_chain);
+	if (el == &common.immediate) {
+		if (atomic_dec(&common.immediate_count) < 0) {
+			msg("IMM < 0");
+			atomic_set(&common.immediate_count, 0);
+		}
+	}
 	atomic_dec(&e->tc->refcnt);
 	e->el = NULL;
 }
@@ -510,6 +518,7 @@ static void add_event_cr(struct event *e, __uint32_t ep_events, enum tc_event_fl
 
 	spin_lock(&common.immediate.lock);
 	_add_event(e, &common.immediate, tc);
+	atomic_inc(&common.immediate_count);
 	spin_unlock(&common.immediate.lock);
 }
 
@@ -700,8 +709,13 @@ static void run_immediate()
 	int did;
 	did = 1;
 	while (did) {
-		did = _run_immediate(worker.nr);
-		did = _run_immediate(FREE_WORKER) || did;
+		/* To reduce lock contention, only search the immediate queue
+		 * if there are few threads on there. */
+		if (atomic_read(&common.immediate_count) <
+				tc_this_pthread_domain->nr_of_workers * 2) {
+			did = _run_immediate(worker.nr);
+			did = _run_immediate(FREE_WORKER) || did;
+		}
 		did = _run_immediate(ANY_WORKER) || did;
 	}
 }
@@ -1218,6 +1232,7 @@ void tc_run(void (*func)(void *), void *data, char* name, int nr_of_workers)
 
 
 	event_list_init(&common.immediate);
+	atomic_set(&common.immediate_count, 0);
 
 	new_domain(&n_d);
 	_setup_domain(n_d, nr_of_workers);
@@ -1919,6 +1934,7 @@ void tc_waitq_wakeup_one_owner(struct tc_waitq *wq, atomic_t *woken)
 		dom = e->domain;
 		CIRCLEQ_REMOVE(&wq->waiters.events, e, e_chain);
 		e->el = &common.immediate;
+		atomic_inc(&common.immediate_count);
 		CIRCLEQ_INSERT_HEAD(&common.immediate.events, e, e_chain);
 		wake = 1;
 		if (woken)
@@ -1982,6 +1998,7 @@ void tc_waitq_wakeup_all(struct tc_waitq *wq)
 		e->el = &common.immediate;
 		dom = e->domain;
 		CIRCLEQ_INSERT_HEAD(&common.immediate.events, e, e_chain);
+		atomic_inc(&common.immediate_count);
 
 		/* Would be nice in tc_signal_fire(), but that would
 		 * need to traverse the list a second time. */
