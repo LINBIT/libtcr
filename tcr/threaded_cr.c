@@ -522,7 +522,7 @@ static void add_event_cr(struct event *e, __uint32_t ep_events, enum tc_event_fl
 	spin_unlock(&common.immediate.lock);
 }
 
-void remove_event_fd(struct event *e, struct tc_fd *tcfd)
+void remove_event_fd(struct event *e, struct tc_fd *tcfd __attribute__((unused)))
 {
 	remove_event(e);
 }
