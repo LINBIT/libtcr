@@ -754,8 +754,8 @@ int tc_sched_yield()
 
 	ret = RV_OK;
 	tc_event_init(&e);
-	_tc_event_on_tc_stack(&e, tc);
 	add_event_cr(&e, 0, EF_READY, tc);
+	_tc_event_on_tc_stack(&e, tc);
 	tc_scheduler();
 	if (worker.woken_by_event != &e)
 	{
