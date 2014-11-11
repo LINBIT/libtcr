@@ -7,14 +7,12 @@
 #include <time.h>
 #include "atomic.h"
 
-typedef struct {
-	int lock;
-	const char* holder;
-	const char* file;
-	int line;
-} spinlock_t;
-
 #include "coroutines.h"
+
+
+extern void _bug_if_holds_immediate(struct tc_thread *who);
+
+
 #define spin_lock(LOCK)  __spin_lock(LOCK, *((char **)cr_uptr(cr_current())), __FILE__, __LINE__)
 #define spin_trylock(LOCK)  __spin_trylock(LOCK, *((char **)cr_uptr(cr_current())), __FILE__, __LINE__)
 
@@ -24,7 +22,9 @@ static inline void __spin_lock(spinlock_t *l, char* holder, char* file, int line
 	static time_t last_warn = 0;
 	time_t now;
 	int i = 0;
-	while (!__sync_bool_compare_and_swap(&l->lock, 0, 1)) {
+	if (cr_current())
+		_bug_if_holds_immediate(cr_uptr(cr_current()));
+	while (!spin_trylock_plain(l)) {
 		i++;
 		if ((i & ((1<<12)-1)) == 0) /* every 4096 spins, call sched_yield() */
 		{
@@ -75,19 +75,21 @@ static inline void __spin_lock(spinlock_t *l, char* holder, char* file, int line
 static inline int __spin_trylock(spinlock_t *l, char* holder, char* file, int line)
 {
 
-	if (!__sync_bool_compare_and_swap(&l->lock, 0, 1))
+	if (!spin_trylock_plain(l)) {
 		return 0;
+	}
 
 	l->file = file;
 	l->line = line;
 	l->holder = holder;
+	l->holding_thread = cr_current() ? cr_uptr(cr_current()) : (void*)&holder;
 	return 1;
 }
 
 
 static inline void spin_unlock(spinlock_t *l)
 {
-	__sync_lock_release(&l->lock);
+	spin_unlock_plain(l);
 	l->file = "(none)";
 	l->holder = "(none)";
 	l->line = 0;

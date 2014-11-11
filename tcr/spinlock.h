@@ -21,16 +21,54 @@
 #define SPINLOCK_H
 
 #include "config.h"
+#include "atomic.h"
+
 
 #ifdef SPINLOCK_DEBUG
-#include "spinlock_debug.h"
+    typedef struct {
+		int lock;
+		struct tc_thread *holding_thread;
+		const char* holder;
+		const char* file;
+		int line;
+	} spinlock_t;
 #else
-#include "spinlock_plain.h"
+    typedef struct {
+		int lock;
+    } spinlock_t;
 #endif
 
-static inline void spin_lock_init(spinlock_t *l)
+
+static inline void spin_unlock_plain(spinlock_t *l)
 {
 	__sync_lock_release(&l->lock);
 }
+
+static inline void spin_lock_init(spinlock_t *l)
+{
+	spin_unlock_plain(l);
+}
+
+static inline int spin_trylock_plain(spinlock_t *l)
+{
+	return __sync_bool_compare_and_swap(&l->lock, 0, 1);
+}
+
+static inline void spin_lock_plain(spinlock_t *l)
+{
+	while (!spin_trylock_plain(l))
+		;
+}
+
+
+#ifdef SPINLOCK_DEBUG
+    #include "spinlock_debug.h"
+#else
+    #define spin_lock(__L) spin_lock_plain(__L)
+    #define spin_unlock(__L) spin_unlock_plain(__L)
+    #define spin_trylock(__L) spin_trylock_plain(__L)
+#endif
+
+
 
 #endif
