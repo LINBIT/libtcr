@@ -6,6 +6,7 @@
 #include <unistd.h>
 #include <time.h>
 #include "atomic.h"
+#include "spinlock.h"
 
 #include "coroutines.h"
 
@@ -74,7 +75,6 @@ static inline void __spin_lock(spinlock_t *l, char* holder, char* file, int line
 
 static inline int __spin_trylock(spinlock_t *l, char* holder, char* file, int line)
 {
-
 	if (!spin_trylock_plain(l)) {
 		return 0;
 	}

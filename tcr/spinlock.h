@@ -60,6 +60,8 @@ static inline void spin_lock_plain(spinlock_t *l)
 		;
 }
 
+#endif
+
 
 #ifdef SPINLOCK_DEBUG
     #include "spinlock_debug.h"
@@ -71,4 +73,3 @@ static inline void spin_lock_plain(spinlock_t *l)
 
 
 
-#endif
