@@ -10,6 +10,7 @@ config.status
 configure
 documentation/
 tcr/Makefile
+tcr/Makefile.deps
 tcr/config.h
 tcr/config.in
 tcr/libtcr.a
