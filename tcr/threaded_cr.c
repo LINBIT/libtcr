@@ -27,6 +27,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdarg.h>
+#include <limits.h>
 #include <string.h>
 #include <sys/resource.h>
 #include <signal.h>
@@ -510,7 +511,7 @@ inline static void _tc_event_on_tc_stack(struct event *e, struct tc_thread *tc)
 	spin_lock(&tc->pending.lock);
 	e->next_in_stack = tc->event_stack;
 	tc->event_stack = e;
-	assert((long)tc->event_stack != (long)0xafafafafafafafaf);
+	assert((long)tc->event_stack != (0xafafafafafafafafULL & ULONG_MAX));
 	spin_unlock(&tc->pending.lock);
 }
 
@@ -1873,7 +1874,7 @@ int tc_waitq_finish_wait(struct tc_waitq *wq, struct event *e)
 			 worker.woken_by_event == e)) {
 		/* Optimal case - the event that got active was the one we expected. */
 		tc->event_stack = e->next_in_stack;
-		assert((long)tc->event_stack != 0xafafafafafafafaf);
+		assert((long)tc->event_stack != (0xafafafafafafafafULL & ULONG_MAX));
 
 		remove_event_holding_locks(e, &tc->pending, &common.immediate, NULL);
 		assert(!e->el);
@@ -1902,7 +1903,7 @@ int tc_waitq_finish_wait(struct tc_waitq *wq, struct event *e)
 		worker.woken_by_event = NULL;
 
 		tc->event_stack = e->next_in_stack;
-		assert((long)tc->event_stack != 0xafafafafafafafaf);
+		assert((long)tc->event_stack != (0xafafafafafafafafULL & ULONG_MAX));
 	}
 
 	spin_unlock(&common.immediate.lock);
