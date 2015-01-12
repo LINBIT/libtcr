@@ -209,7 +209,7 @@ static void iwi_immediate(struct tc_domain *dom);
 static void _tc_fd_init(struct tc_fd *tcfd, int fd);
 static void _remove_event(struct event *e, struct event_list *el);
 static struct event_list *remove_event(struct event *e);
-static void tc_waitq_wakeup_one_owner(struct tc_waitq *wq, atomic_t *woken);
+static void tc_waitq_wakeup_one_owner(struct tc_waitq *wq, struct tc_thread **woken);
 
 __thread struct tc_domain *tc_this_pthread_domain = NULL;
 /* I don't want to make "tc_this_pthread_domain" visible globally, but  */
@@ -1708,8 +1708,7 @@ static void store_for_later_free(struct tc_fd *tcfd)
 
 void tc_mutex_init(struct tc_mutex *m)
 {
-	assert( sizeof(m->owner) == sizeof(m->a_owner));
-	m->owner = NULL;
+	m->m_owner = NULL;
 	tc_waitq_init(&m->wq);
 }
 
@@ -1718,7 +1717,7 @@ void tc_mutex_change_owner(struct tc_mutex *m, struct tc_thread *who)
 {
 	struct tc_thread *me = tc_current();
 
-	m->owner = who;
+	m->m_owner = who;
 	/*
 	 * Proxy gives thread to an opaque value, because the unlocking thread
 	 * isn't known beforehand. (Might change because of connection dropping,
@@ -1737,23 +1736,22 @@ enum tc_rv tc_mutex_lock(struct tc_mutex *m)
 {
 	int rv;
 	struct tc_thread *me = tc_current();
-	long me_l = (long)me;
 
-	if (m->owner == me)
+	if (m->m_owner == me)
 		msg_exit(1, "mutex %p recursively locked in thread %p\n", m, me);
 
 
 	rv = RV_OK;
-	if (atomic_set_if_eq(me_l, 0, &m->a_owner)) {
+	if (__sync_bool_compare_and_swap(&m->m_owner, 0, me)) {
 		goto got_it;
 	}
 
 	rv = tc_waitq_wait_event( &m->wq,
 			({ 
 			 /* Given by last owner */
-			 (m->owner == me) ||
+			 (m->m_owner == me) ||
 			 /* or got free */
-			 atomic_set_if_eq((long)tc_current(), 0, &m->a_owner);
+			 __sync_bool_compare_and_swap(&m->m_owner, 0, me);
 			 }) );
 
 got_it:
@@ -1765,15 +1763,15 @@ void tc_mutex_unlock(struct tc_mutex *m)
 	/* We cannot be sure that tc_current() == m->owner
 	 * because of lock passing. */
 
-	if (!m->owner)
+	if (!m->m_owner)
 		msg_exit(1, "tc_mutex_unlocked() called on an unlocked mutex\n");
 
-	tc_waitq_wakeup_one_owner(&m->wq, &m->a_owner);
+	tc_waitq_wakeup_one_owner(&m->wq, &m->m_owner);
 }
 
 enum tc_rv tc_mutex_trylock(struct tc_mutex *m)
 {
-	if (atomic_set_if_eq((long)tc_current(), 0, &m->a_owner)) {
+	if (__sync_bool_compare_and_swap(&m->m_owner, NULL, tc_current())) {
 		return RV_OK;
 	}
 
@@ -1923,7 +1921,7 @@ int tc_waitq_wait(struct tc_waitq *wq)
 	return rv;
 }
 
-void tc_waitq_wakeup_one_owner(struct tc_waitq *wq, atomic_t *woken)
+void tc_waitq_wakeup_one_owner(struct tc_waitq *wq, struct tc_thread **woken)
 {
 	int wake = 0;
 	struct event *e;
@@ -1935,8 +1933,10 @@ void tc_waitq_wakeup_one_owner(struct tc_waitq *wq, atomic_t *woken)
 	spin_lock_plain(&wq->waiters.lock);
 	dom = tc_this_pthread_domain;
 	if (CIRCLEQ_EMPTY(&wq->waiters.events)) {
-		if (woken)
-			atomic_set(woken, 0);
+		if (woken) {
+			*woken = NULL;
+			__sync_synchronize();
+		}
 	} else {
 		e = CIRCLEQ_FIRST(&wq->waiters.events);
 		dom = e->domain;
@@ -1945,8 +1945,10 @@ void tc_waitq_wakeup_one_owner(struct tc_waitq *wq, atomic_t *woken)
 		atomic_inc(&common.immediate_count);
 		CIRCLEQ_INSERT_HEAD(&common.immediate.events, e, e_chain);
 		wake = 1;
-		if (woken)
-			atomic_set(woken, (long)e->tc);
+		if (woken) {
+			*woken = e->tc;
+			__sync_synchronize();
+		}
 	}
 	spin_unlock(&wq->waiters.lock);
 	spin_unlock(&common.immediate.lock);

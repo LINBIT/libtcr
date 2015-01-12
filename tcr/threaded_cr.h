@@ -86,10 +86,7 @@ struct tc_waitq {
 };
 
 struct tc_mutex {
-	union {
-		struct tc_thread *owner;
-		atomic_t a_owner;
-	};
+	struct tc_thread *m_owner;
 	struct tc_waitq wq;
 };
 
