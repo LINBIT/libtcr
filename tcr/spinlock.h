@@ -85,6 +85,12 @@ static inline int spin_trylock_plain(spinlock_t *l)
 	return __sync_val_compare_and_swap(&l->lock.m, 0, this_spinlock_owner.m);
 }
 
+#if __PPC__
+static inline void cpu_relax(void)
+{
+	asm volatile("nop");
+}
+#else
 /* REP NOP (PAUSE) is a good thing to insert into busy-wait loops. */
 static inline void rep_nop(void)
 {
@@ -95,6 +101,7 @@ static inline void cpu_relax(void)
 {
 	rep_nop();
 }
+#endif
 
 #ifdef SPINLOCK_DEBUG
 

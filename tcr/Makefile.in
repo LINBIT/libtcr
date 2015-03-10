@@ -1,8 +1,14 @@
 EXTRA_CFLAGS := @EXTRA_CFLAGS@
 CFLAGS  := -pthread  $(EXTRA_CFLAGS) -I/usr/src/kernels/2.6.18-406.el5-x86_64/
 LDFLAGS := -pthread -g
+LDLIBS += -lm
 
 ARCH	:= $(shell uname -m | sed -e s/i.86/i386/)
+
+ifeq ($(ARCH),ppc64le)
+ASFLAGS += -mregnames -mcpu=power8 -mlittle-endian
+endif
+
 
 .PHONY: clean
 
