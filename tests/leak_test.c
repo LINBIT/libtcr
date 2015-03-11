@@ -43,11 +43,13 @@ static void starter(void *unused)
 	for(i=0; i<1000; i++)
 	{
 		putchar(i & 0x3f ? '.' : '\n');
+		fflush(stdout);
 		tc_thread_pool_new(&threads, drbd_connection, NULL, "DRBD conn %d", 0);
 		tc_thread_pool_wait(&threads);
 
 		tc_sleep(CLOCK_MONOTONIC, 0, 10000000);
 	}
+	printf("\ndone.\n");
 }
 
 
