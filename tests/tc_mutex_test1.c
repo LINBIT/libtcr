@@ -7,14 +7,18 @@
 static struct tc_mutex m;
 static int in_cr = 0;
 static int worker_no = 0;
-static int cnt[32];
-
+static int cnt[512];
 
 void worker(void *ttf_vp)
 {
 	struct tc_fd *the_tc_fd = (struct tc_fd*) ttf_vp;
 	int this_worker_no = worker_no++;
 	int old_cr;
+
+	if (this_worker_no >= (sizeof(cnt)/sizeof(cnt[0]))) {
+		fprintf(stdout, "too many workers, would corrupt static variables\n");
+		exit(2);
+	}
 
 	fprintf(stdout, "worker %d started (%p).\n", this_worker_no, tc_current());
 	while (1) {
