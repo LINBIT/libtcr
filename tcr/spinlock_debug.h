@@ -71,6 +71,7 @@ static inline void __spin_lock(spinlock_t *l, char* holder, char* file, int line
 	l->file = file;
 	l->line = line;
 	l->holder = holder;
+	l->holding_thread = cr_current() ? cr_uptr(cr_current()) : (void*)&now;
 }
 
 static inline int __spin_trylock(spinlock_t *l, char* holder, char* file, int line)
@@ -93,6 +94,7 @@ static inline void spin_unlock(spinlock_t *l)
 	l->file = "(none)";
 	l->holder = "(none)";
 	l->line = 0;
+	l->holding_thread = NULL;
 }
 
 #endif
