@@ -8,7 +8,7 @@ static int worker_no = 0;
 
 void worker(void *unused)
 {
-	int this_worker_no = ++worker_no;
+	int this_worker_no = atomic_inc(&worker_no);
 	int i;
 
 	fprintf(stdout, "worker %d started.\n", this_worker_no);
