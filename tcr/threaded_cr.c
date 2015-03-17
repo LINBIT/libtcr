@@ -1703,12 +1703,13 @@ static void store_for_later_free(struct tc_fd *tcfd)
 		list = tc_this_pthread_domain->sleeping_workers.cl_next;
 		while (list != &tc_this_pthread_domain->sleeping_workers) {
 			w = container_of(list, struct worker_struct, sleeping_chain);
-			/* When a synchronize_world() is run while a thread waits for the lock
+			/* When this function here is run while a thread waits for the lock
 			 * in worker_prepare_sleep(), then the worker would be on the
 			 * sleeping_workers list again.
-			 * If the next function is a synchronize_world() again (likely in
+			 * If the next function is this here again (likely in
 			 * leak_test2), then this would try to get the thread again ... */
 			if (!w->must_sync) {
+				/* Should these 2 assignments be atomic ops instead? */
 				w->must_sync = 1;
 				atomic_inc(&tc_this_pthread_domain->sync_barrier);
 				w->is_on_sleeping_list = 0;
