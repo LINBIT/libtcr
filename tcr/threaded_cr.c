@@ -2125,13 +2125,18 @@ struct tc_signal_sub *tc_signal_subscribe(struct tc_signal *s)
  * our reach during unsubscribe etc. */
 void tc_signal_unsubscribe_nofree(struct tc_signal *s, struct tc_signal_sub *ss)
 {
-	struct tc_thread *tc = ss->event.tc;
+	struct tc_thread *tc;
 
 	/* The event might be added to tc_this_pthread_domain->immediate or tc->pending by some
 	 * wakeup_all call while we're waiting for the signals' wq lock, so we have
 	 * to remove it from there first.  */
 	spin_lock(&common.immediate.lock);
 	spin_lock_plain(&s->wq.waiters.lock);
+	/* DRD thinks that reading the tc is not allowed until a lock is taken...
+	 * which is basically right, although in this case event->tc should never change again.
+	 * (But it's correct that in _run_immediate => run_or_queue => _add_event the events'
+	 * e->tc is written to.) */
+	tc = ss->event.tc;
 	spin_lock_plain(&tc->pending.lock);
 	LIST_REMOVE(ss, se_chain);
 	remove_event_holding_locks(&ss->event, &s->wq.waiters, &tc->pending, &common.immediate, NULL);
