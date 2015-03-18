@@ -641,13 +641,14 @@ queue:
 	}
 
 start_thread:
-	tc->flags |= TF_RUNNING;
-	spin_unlock(&tc->pending.lock);
+	__sync_or_and_fetch(&tc->flags, TF_RUNNING);
 
 #ifdef WAIT_DEBUG
 	tc->sleep_file = "running";
 	tc->sleep_line = 0;
 #endif
+
+	spin_unlock(&tc->pending.lock);
 
 	if (e->flags == EF_SIGNAL)
 		_signal_gets_delivered(e);
@@ -813,12 +814,14 @@ return_this:
 	}
 
 wait_for_another:
-	tc->flags &= ~TF_RUNNING;
-	spin_unlock(&tc->pending.lock);
+	__sync_and_and_fetch(&tc->flags, ~TF_RUNNING);
 
 #ifdef WAIT_DEBUG
 	tc->sleep_file = _caller_file;
 	tc->sleep_line = _caller_line;
+#endif
+	spin_unlock(&tc->pending.lock);
+#ifdef WAIT_DEBUG
 #endif
 
 	_switch_to(&worker.sched_p2); /* always -> scheduler_part2()*/
