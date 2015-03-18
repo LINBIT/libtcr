@@ -1864,6 +1864,7 @@ void tc_waitq_init(struct tc_waitq *wq)
  * so common.immediate is held */
 static void _tc_waitq_prepare_to_wait(struct tc_waitq *wq, struct event *e, struct tc_thread *tc)
 {
+	worker.woken_by_event = NULL;
 	spin_lock_plain(&wq->waiters.lock);
 	_add_event(e, &wq->waiters, tc);
 	spin_unlock(&wq->waiters.lock);
@@ -2144,6 +2145,7 @@ void tc_signal_unsubscribe_nofree(struct tc_signal *s, struct tc_signal_sub *ss)
 	spin_unlock(&s->wq.waiters.lock);
 	spin_unlock(&tc->pending.lock);
 	spin_unlock(&common.immediate.lock);
+	memset(ss, 0xc2, sizeof(*ss));
 }
 
 void tc_signal_unsubscribe(struct tc_signal *s, struct tc_signal_sub *ss)
