@@ -1608,15 +1608,24 @@ static void _tc_fd_unregister(struct tc_fd *tcfd, int free_later)
 		msg_exit(1, "event list not empty in tc_unregister_fd()\n");
 	spin_unlock(&tcfd->events.lock);
 
-	if (free_later)
-		store_for_later_free(tcfd);
-	else
-		_tc_fd_free(tcfd);
+	switch (free_later) {
+	case -1: break;  // don't free
+	case  0:
+		 _tc_fd_free(tcfd);
+		 break;
+	default:
+		 store_for_later_free(tcfd);
+	}
 }
 
 void tc_unregister_fd(struct tc_fd *tcfd)
 {
 	_tc_fd_unregister(tcfd, 1);
+}
+
+void tc_unregister_fd_mem(struct tc_fd *tcfd)
+{
+	_tc_fd_unregister(tcfd, -1);
 }
 
 static void _process_free_list(spinlock_t *lock_to_free)
