@@ -977,7 +977,7 @@ static void scheduler_part2()
 		if (!e) {
 			/* That can happen if a fd was enabled by a call to tc_wait_fd(),
 			   that was interrupted by a tc_signal later. Then an event on the
-			   fd happened, be no tc_library thread waits for that event any
+			   fd happened, but no tc_library thread waits for that event any
 			   longer. No need to worry, since we use EPOLLONESHOT always,
 			   we can simply return to epoll_wait() */
 
