@@ -51,13 +51,35 @@ static inline void spin_lock_init(spinlock_t *l)
 
 static inline int spin_trylock_plain(spinlock_t *l)
 {
+	/* why not __sync_lock_test_and_set(&l->lock, 1); ? */
 	return __sync_bool_compare_and_swap(&l->lock, 0, 1);
 }
 
+/* REP NOP (PAUSE) is a good thing to insert into busy-wait loops. */
+static inline void rep_nop(void)
+{
+	asm volatile("rep; nop" ::: "memory");
+}
+
+static inline void cpu_relax(void)
+{
+	rep_nop();
+}
+
+/*
+ * Need to "relax" the cpu in the busy loop,
+ * and also not spin on the atomic instruction,
+ * but on some dirty read instead.
+ *
+ * See also:
+ * https://software.intel.com/en-us/articles/implementing-scalable-atomic-locks-for-multi-core-intel-em64t-and-ia32-architectures
+ */
 static inline void spin_lock_plain(spinlock_t *l)
 {
-	while (!spin_trylock_plain(l))
-		;
+	if (spin_trylock_plain(l))
+		return;
+	while (*(volatile int*)&l->lock || !spin_trylock_plain(l))
+		cpu_relax();
 }
 
 
