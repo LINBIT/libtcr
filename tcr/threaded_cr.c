@@ -2220,6 +2220,9 @@ void tc_renice_domain(struct tc_domain *d, int new_nice)
 {
 	struct worker_struct *w;
 
+	if (d == NULL)
+		d = tc_this_pthread_domain;
+
 	d->nice_level = new_nice;
 	spin_lock(&d->worker_list_lock);
 	LIST_FOREACH(w, &d->worker_list, worker_chain) {
