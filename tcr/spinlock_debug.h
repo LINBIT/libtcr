@@ -19,7 +19,7 @@ extern void _bug_if_holds_immediate(struct tc_thread *who);
 
 static int spins_per_delay = 0;
 /* MAYBE: randomize delay */
-static unsigned const delay_usec = 200;
+static unsigned const delay_usec = 50;
 
 /* sched_yield() may not be what you think it is.
  * I suggest to either escalate to some wake-wait futex,
