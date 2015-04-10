@@ -33,7 +33,7 @@ static void starter(void *arg)
 
 #ifdef WAIT_DEBUG
 	tc_sleep(CLOCK_MONOTONIC, 0, 1000000); /* 1ms, allow the stdin_reader to reach tc_wait_fd() */
-	tc_dump_threads();
+	tc_dump_threads(NULL);
 
 	printf("\nSend a SIGUSR1 ... any input causes the program to terminate\n");
 	printf("kill -USR1 %d\n", getpid());

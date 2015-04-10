@@ -101,7 +101,7 @@ void starter(void *unused)
 	i = tc_thread_pool_wait(&tp);
 	printf("returned %d\n", i);
 
-	tc_dump_threads();
+	tc_dump_threads(NULL);
 }
 
 

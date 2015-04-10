@@ -200,7 +200,7 @@ void signal_catcher(void *un)
 	{
 		i=tc_sleep(CLOCK_MONOTONIC, 30,0);
 		printf("\n%p catcher: sleep said %d, dropping sockets.\n", tc_current(), i);
-		tc_dump_threads();
+		tc_dump_threads(NULL);
 		printf("\n\n");
 
 		memcpy(s2, socks, sizeof(s2));

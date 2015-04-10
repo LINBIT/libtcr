@@ -177,7 +177,7 @@ void starter(void *unused)
 
 
 
-	tc_dump_threads();
+	tc_dump_threads(NULL);
 	tc_thread_new( signalling, NULL, "writer");
 
 	tc_thread_wait_ref(&f);
