@@ -118,9 +118,9 @@ struct worker_struct {
 };
 
 enum inter_worker_interrupts {
-	IWI_SYNC,
-	IWI_IMMEDIATE,
-	IWI_ASYNC_IO,
+	IWI_SYNC = 27,
+	IWI_IMMEDIATE = 47,
+	IWI_ASYNC_IO = 71,
 };
 
 
