@@ -4,7 +4,7 @@
 #include "tcr/threaded_cr.h"
 
 static struct tc_mutex m;
-static int worker_no = 0;
+static atomic_t worker_no = { 0 };
 
 void worker(void *unused)
 {
