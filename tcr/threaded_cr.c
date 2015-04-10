@@ -712,11 +712,14 @@ search_loop_locked:
 	return 0;
 }
 
-static void run_immediate()
+static int run_immediate()
 {
 	int did;
+	int i;
+
 	did = 1;
-	while (did) {
+	/* FIXME - different initial value for i? */
+	for(i=4; did && i>0; i--) {
 		/* To reduce lock contention, only search the immediate queue
 		 * if there are few threads on there. */
 		if (atomic_read(&common.immediate_count) <
@@ -726,6 +729,8 @@ static void run_immediate()
 		}
 		did = _run_immediate(ANY_WORKER) || did;
 	}
+
+	return did;
 }
 
 static void rearm_immediate()
@@ -881,6 +886,7 @@ static void scheduler_part2()
 	struct event *e;
 	struct tc_thread *tc;
 	int er;
+	int have_work;
 
 
 	tc = (struct tc_thread *)cr_uptr(cr_caller());
@@ -891,17 +897,20 @@ static void scheduler_part2()
 	   would become active twice, when it gets woken up on a different worker */
 
 	while(1) {
-		run_immediate();
+		have_work = run_immediate();
 
 		worker_prepare_sleep();
 		while (1) {
-			er = epoll_wait(tc_this_pthread_domain->efd, &epe, 1, -1);
+			epe.data.u64 = 0;
+
+			er = epoll_wait(tc_this_pthread_domain->efd, &epe, 1,
+					have_work ? 0 : -1);
 			if (er >= 0)
 				break; /* There's something to handle */
 			if (errno == EINTR) {
 				if (worker.must_sync) {
 					/* Sync necessary */
-					epe.data.ptr = IWI_SYNC;
+					epe.data.u64 = IWI_SYNC;
 					break;
 				}
 				/* Else continue loop */
@@ -911,7 +920,11 @@ static void scheduler_part2()
 		}
 
 
-		switch ((long)epe.data.ptr) {
+		switch (epe.data.u64) {
+		case 0:
+			/* Still have work to do. */
+			assert(have_work);
+			/* Fall through. */
 		case IWI_SYNC:
 			worker_after_sleep();
 			continue;
