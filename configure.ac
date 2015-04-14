@@ -8,6 +8,8 @@ AC_CHECK_HEADERS([sys/eventfd.h])
 AC_CHECK_FUNCS([timerfd_create])
 AC_CHECK_FUNCS([timerfd_settime])
 
+# -O1 would be ok?
+# at least enable -Og
 EXTRA_CFLAGS="-Wall -Wextra -Wno-unused-parameter -g"
 
 AC_ARG_ENABLE([spinlock-debug],
@@ -31,7 +33,7 @@ AC_ARG_ENABLE([wait-debug],
 AC_ARG_ENABLE([spinlock-abort],
 	      [AS_HELP_STRING([--enable-spinlock-abort],
 			      [Enable spinlock abort])],
-	      [AC_DEFINE(WAIT_DEBUG, 1, [Define to enable abort()ing the program if a spinlock cannot be acquired for too long.])
+	      [AC_DEFINE(SPINLOCK_ABORT, 1, [Define to enable abort()ing the program if a spinlock cannot be acquired for too long.])
               CFLAGS=$EXTRA_CFLAGS]
 )
 
