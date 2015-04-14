@@ -512,7 +512,7 @@ inline static void _tc_event_on_tc_stack(struct event *e, struct tc_thread *tc)
 	spin_lock(&tc->pending.lock);
 	e->next_in_stack = tc->event_stack;
 	tc->event_stack = e;
-	assert((long)tc->event_stack != (0xafafafafafafafafULL & ULONG_MAX));
+	assert((unsigned long)tc->event_stack != (0xafafafafafafafafULL & ULONG_MAX));
 	spin_unlock(&tc->pending.lock);
 }
 
@@ -1608,7 +1608,7 @@ static void _tc_fd_free(struct tc_fd *tcfd)
 
 static void _tc_fd_unregister(struct tc_fd *tcfd, int free_later)
 {
-	struct epoll_event epe = { };
+	struct epoll_event epe = { 0, };
 
 	/* Make this tcfd not appear again in the epoll_wait loop.
 	 * We're ignoring the return value of epoll_ctl() here on intention. */
@@ -1908,7 +1908,6 @@ int tc_waitq_finish_wait(struct tc_waitq *wq, struct event *e)
 	int was_on_top, was_active;
 	struct tc_thread *tc = tc_current();
 
-
 	/* We need to hold the immediate lock here so that no other thread might
 	 * take the event and put it on the pending queue while we're trying to
 	 * free it. */
@@ -1920,7 +1919,7 @@ int tc_waitq_finish_wait(struct tc_waitq *wq, struct event *e)
 			 worker.woken_by_event == e)) {
 		/* Optimal case - the event that got active was the one we expected. */
 		tc->event_stack = e->next_in_stack;
-		assert((long)tc->event_stack != (0xafafafafafafafafULL & ULONG_MAX));
+		assert((unsigned long)tc->event_stack != (0xafafafafafafafafULL & ULONG_MAX));
 
 		remove_event_holding_locks(e, &tc->pending, &common.immediate, NULL);
 		assert(!e->el);
@@ -1949,7 +1948,7 @@ int tc_waitq_finish_wait(struct tc_waitq *wq, struct event *e)
 		worker.woken_by_event = NULL;
 
 		tc->event_stack = e->next_in_stack;
-		assert((long)tc->event_stack != (0xafafafafafafafafULL & ULONG_MAX));
+		assert((unsigned long)tc->event_stack != (0xafafafafafafafafULL & ULONG_MAX));
 	}
 
 	spin_unlock(&common.immediate.lock);
@@ -2045,7 +2044,7 @@ void tc_waitq_wakeup_all(struct tc_waitq *wq)
 {
 	struct event *e;
 	struct tc_domain *alerted[10], *dom;
-	int alerted_max, i;
+	unsigned int alerted_max, i;
 
 	alerted_max = 0;
 	spin_lock(&common.immediate.lock);
@@ -2759,7 +2758,7 @@ int tc_aio_read(int fh, void *buffer, size_t size, off_t offset)
 	if (rv)
 		return rv;
 
-	if (ad->res == size)
+	if (ad->res > 0 && (uint64_t)ad->res == size)
 		return 0;
 
 	/* There's something wrong, don't return 0. */
