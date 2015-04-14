@@ -9,7 +9,7 @@ export CFLAGS LDFLAGS
 
 all: libtcr.a tests man-pages
 
-tests:
+tests: libtcr.a
 	$(MAKE) -r -C tests
 
 clean:
