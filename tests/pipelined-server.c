@@ -50,7 +50,7 @@ static void worker(void *data)
 		if (tc_wait_fd(EPOLLIN, tcfd))
 			break;
 		r = malloc(sizeof(struct req));	     /* begin of READ stage */
-		if (tc_read(tcfd, r->data, sizeof(r->data)) < sizeof(r->data))
+		if (tc_read(tcfd, r->data, sizeof(r->data)) < (ssize_t)sizeof(r->data))
 			break;
 		r->nul = 0;
 

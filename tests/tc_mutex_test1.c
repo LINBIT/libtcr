@@ -6,13 +6,13 @@
 
 static struct tc_mutex m;
 static int in_cr = 0;
-static int worker_no = 0;
-static int cnt[512];
+static unsigned int worker_no = 0;
+static unsigned int cnt[512];
 
 void worker(void *ttf_vp)
 {
 	struct tc_fd *the_tc_fd = (struct tc_fd*) ttf_vp;
-	int this_worker_no = worker_no++;
+	unsigned int this_worker_no = worker_no++;
 	int old_cr;
 
 	if (this_worker_no >= (sizeof(cnt)/sizeof(cnt[0]))) {
@@ -57,7 +57,7 @@ void starter(void *unused)
 
 void sig(int s)
 {
-	printf("\nsignal\n");
+	printf("\nsignal %u\n", s);
 	fflush(NULL);
 	exit(cnt[0] < 50 ? 1 : 0);
 }

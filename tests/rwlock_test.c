@@ -12,7 +12,7 @@ float x=2.1;
 
 void starter(void *unused)
 {
-	int i;
+	unsigned i;
 	tc_rw_init(&lock);
 	tc_parallel_for(i, i = 0, i < max, i++) {
 		int r;

@@ -12,7 +12,7 @@ float x=2.1;
 
 void starter(void *unused)
 {
-	int i;
+	unsigned int i;
 	tc_parallel_for(i, i = 0, i < max, i++) {
 		int r, j;
 		spin_lock(&lock);

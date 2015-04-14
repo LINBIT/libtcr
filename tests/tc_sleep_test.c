@@ -72,7 +72,7 @@ void worker(void* vou)
 void starter(void *unused)
 {
 	struct tc_thread *t[5]; // doesn't trigger bug for <= 3
-	int i;
+	unsigned i;
 	struct rlimit rlim;
 	struct tc_thread_pool tp;
 
