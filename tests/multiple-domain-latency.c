@@ -43,7 +43,7 @@ void timestamp_receiver(void *_is_slow)
 	struct timeval now, sent;
 	struct tc_thread_pool sleeper;
 	struct tc_thread_pool busyp;
-        double sum, sumsq, avg;
+        double sum = 0, sumsq = 0, avg;
         char *type = is_slow ? "slow" : "fast";
 
 

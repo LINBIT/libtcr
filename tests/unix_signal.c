@@ -3,6 +3,8 @@
 #include <sys/epoll.h>
 #include <tcr/threaded_cr.h>
 
+void msg_exit(int code, const char *fmt, ...) __attribute__ ((__noreturn__));
+
 static void starter(void *arg)
 {
 	struct tc_fd *sig_tcfd;

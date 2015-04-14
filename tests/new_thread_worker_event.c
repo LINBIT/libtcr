@@ -15,14 +15,8 @@ static int loops = LOOPS;
 
 static void waker(void *unused)
 {
-	struct timespec tv;
-
-	tv.tv_sec = 0;
 	while (loops > 0) {
 		tc_sleep(CLOCK_MONOTONIC, 0, 1 + (rand() & 0xff)); /* 30ms */
-		tv.tv_nsec = 1 + (rand() & 0xff);
-//		LL("sleeping for %d nsec", tv.tv_nsec);
-//		nanosleep(&tv, &tv);
 		tc_waitq_wakeup(&wq);
 	}
 }

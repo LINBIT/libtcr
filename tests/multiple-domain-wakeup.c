@@ -60,12 +60,12 @@ void starter(void *unused)
 		 * then they may proceed once, and are stopped again. */
 		printf("%llu %llu %llu\n", counter[0], counter[1], counter[2]);
 		atomic_set(&go, 0);
-		printf("%d: %d threads; %d\n", atomic_read(&threads), i, atomic_read(&go));
+		printf("%ld: %d threads; %ld\n", atomic_read(&threads), i, atomic_read(&go));
 		tc_rw_w_unlock(&l);
 
 		tc_sleep(CLOCK_MONOTONIC, 0, 1e6);
 		atomic_set(&go, atomic_read(&threads));
-		printf("readers: %d\n", atomic_read(&l.readers));
+		printf("readers: %ld\n", atomic_read(&l.readers));
 		tc_rw_w_lock(&l);
 		tc_waitq_wakeup_all(&wq);
 

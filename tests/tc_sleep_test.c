@@ -25,10 +25,13 @@ void sig(int s)
 void worker(void* vou)
 {
 	int i;
-	struct tc_signal_sub *ss;
+	struct tc_signal_sub *ss = NULL;
 	struct timespec a,b;
 	float exp;
 
+	/* can you please explain what "vou" is supposed to stand for,
+	 * when it would be "true", and what this is supposed to do?
+	 */
 	if (vou) {
 		ss = tc_signal_subscribe(&the_drbd_signal);
 		printf("worker %p: waiting for lock\n", tc_current());
