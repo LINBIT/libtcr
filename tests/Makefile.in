@@ -78,7 +78,7 @@ $(RESULT_PATH)tc_wait_fd2.txt: tc_wait_fd2
 
 $(RESULT_PATH)tc_thread_dump.txt: tc_thread_dump
 	$(PRE)
-	$(QUIET)(sleep 1 ; echo HA ; sleep 2) | ./$< &> $@.tmp & ( sleep 0.5 ; killall -USR1 $< ; sleep 0.5 ) && wait
+	$(QUIET)(sleep 1 ; echo HA ; sleep 2) | ./$< &> $@.tmp & sleep 0.5 && kill -USR1 $$! && sleep 0.5 && wait
 	$(POST)
 
 $(RESULT_PATH)tc_wait_fd-roundrobin.txt: tc_wait_fd-roundrobin
@@ -98,7 +98,7 @@ $(RESULT_PATH)tc_rwlock_signal_test.txt		\
 $(RESULT_PATH)tc_wait_fd.txt			\
 $(RESULT_PATH)main.txt				\
 $(RESULT_PATH)unix_signal.txt:
-	$(QUIET)echo "  unused $<"
+	$(QUIET)echo "  unused $@"
 
 # doesn't test libTCR
 other-tests:
