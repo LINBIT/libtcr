@@ -10,10 +10,11 @@ static void starter(void *unused)
 	}
 
 	tc_parallel {
-		printf("Hello ");
+		printf(" Hello");
 	} tc_with {
-		printf("world");
+		printf(" world");
 	} tc_parallel_end;
+	printf("\n");
 }
 
 int main()
