@@ -78,6 +78,8 @@ static inline atomic_base_type atomic_test_bit(atomic_base_type bnr, atomic_t *v
 	return v->counter & (1 << bnr);
 }
 
+#define ACCESS_ONCE(p) (*(volatile typeof(p)*)&(p))
+
 #define atomic_dec(v) atomic_sub_return(1, v)
 #define atomic_inc(v) atomic_add_return(1, v)
 #endif

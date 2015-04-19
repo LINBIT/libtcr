@@ -8,7 +8,7 @@ all: libtcr.a
 clean:
 	rm -f *.o *.a
 
-libtcr.a: threaded_cr.o coroutines.o swapcontext_fast_$(ARCH).o
+libtcr.a: threaded_cr.o spinlock.o coroutines.o swapcontext_fast_$(ARCH).o
 	ar rcs $@ $^
 
 dep:

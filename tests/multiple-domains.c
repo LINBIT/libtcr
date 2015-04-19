@@ -31,7 +31,7 @@ void worker(void *_a)
 	fprintf(stdout, "worker %d started (%p), for %p.\n", this_worker_no, tc_current(), ps);
 	tc_waitq_wait_event(&wq, go);
 
-	while (go) {
+	while (ACCESS_ONCE(go)) {
 		tc_mutex_lock(&ps->m);
 		atomic_inc(&ps->cnt);
 		a = atomic_read(&ps->cnt);

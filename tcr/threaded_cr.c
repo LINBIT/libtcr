@@ -177,12 +177,12 @@ struct common_data_t {
 
 static int fprintf_stderr(const char *fmt, va_list ap);
 
+/* see also: CPU_ALLOC, CPU_SETSIZE */
 static struct common_data_t common = {
 	.available_cpus = { { 0 } },
 	.pthread_counter = { 0 },
 	.diagnostic = fprintf_stderr,
 };
-
 
 #ifdef WAIT_DEBUG
 #undef tc_sched_yield
@@ -1050,6 +1050,10 @@ found_cpu:
 		msg_exit(1, "sched_setaffinity(%d): %m\n", i);
 
 	worker.nr = i;
+	worker.tid = syscall(__NR_gettid);
+	this_spinlock_owner.tid = worker.tid;
+	this_spinlock_owner.cpu = my_cpu;
+
 	rv |= asprintf(&worker.main_thread.name, "main_thread_%d", i);
 	worker.main_thread.domain = tc_this_pthread_domain;
 	worker.main_thread.cr = cr_current();
@@ -1062,7 +1066,6 @@ found_cpu:
 	event_list_init(&worker.main_thread.pending);
 	worker.main_thread.worker_nr = i;
 	/* LIST_INSERT_HEAD(&tc_this_pthread_domain->threads, &worker.main_thread, tc_chain); */
-	worker.tid = syscall(__NR_gettid);
 
 	rv |= asprintf(&worker.sched_p2.name, "sched_%d", worker.tid);
 	if (rv == -1)

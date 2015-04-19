@@ -20,39 +20,66 @@
 #ifndef SPINLOCK_H
 #define SPINLOCK_H
 
+#include <stdint.h>
+#include <stdbool.h>
+
 #include "config.h"
-#include "atomic.h"
 
-
-#ifdef SPINLOCK_DEBUG
-    typedef struct {
-		int lock;
-		struct tc_thread *holding_thread;
-		const char* holder;
-		const char* file;
-		int line;
-	} spinlock_t;
-#else
-    typedef struct {
-		int lock;
-    } spinlock_t;
+#ifdef SPINLOCK_ABORT
+#ifndef SPINLOCK_DEBUG
+#define SPINLOCK_DEBUG 1
+#endif
 #endif
 
+#ifdef SPINLOCK_DEBUG
+#include <assert.h>
+#include <syslog.h>
+#include <sys/types.h>
+#include <unistd.h>
+#endif
 
+#include "atomic.h"
+
+// BUILD_BUG_ON(sizeof(pid_t) > sizeof(uint32_t));
+
+/* same can probably be achieved within 32bit, if we limit (mask) the tid,
+ * and use only some bit for the cpu */
+union spinlock_marker {
+	uint64_t m;
+	struct {
+		uint32_t tid; /* must not be 0! */
+		uint32_t cpu; /* because this could be 0. */
+	};
+};
+
+typedef struct spinlock {
+	union spinlock_marker lock;
+	int spinners;
+#ifdef SPINLOCK_DEBUG
+	const char* file;
+	int line;
+#endif
+} spinlock_t;
+
+
+extern __thread union spinlock_marker this_spinlock_owner;
 static inline void spin_unlock_plain(spinlock_t *l)
 {
-	__sync_lock_release(&l->lock);
+#if 0 && defined(SPINLOCK_DEBUG)
+	assert(l->lock.m == this_spinlock_owner.m);
+#endif
+	__sync_lock_release(&l->lock.m);
 }
 
 static inline void spin_lock_init(spinlock_t *l)
 {
-	spin_unlock_plain(l);
+	__sync_lock_release(&l->lock.m);
 }
 
 static inline int spin_trylock_plain(spinlock_t *l)
 {
-	/* why not __sync_lock_test_and_set(&l->lock, 1); ? */
-	return __sync_bool_compare_and_swap(&l->lock, 0, 1);
+	/* ASSERT(this_spinlock_owner.m); */
+	return __sync_val_compare_and_swap(&l->lock.m, 0, this_spinlock_owner.m);
 }
 
 /* REP NOP (PAUSE) is a good thing to insert into busy-wait loops. */
@@ -66,29 +93,36 @@ static inline void cpu_relax(void)
 	rep_nop();
 }
 
-/*
- * Need to "relax" the cpu in the busy loop,
- * and also not spin on the atomic instruction,
- * but on some dirty read instead.
- *
- * See also:
- * https://software.intel.com/en-us/articles/implementing-scalable-atomic-locks-for-multi-core-intel-em64t-and-ia32-architectures
- */
-static inline void spin_lock_plain(spinlock_t *l)
+#ifdef SPINLOCK_DEBUG
+
+void __spin_lock(spinlock_t *l, char* file, int line);
+#define spin_lock(__L) _spin_lock(__L, __FILE__, __LINE__)
+static inline void _spin_lock(spinlock_t *l, char* file, int line)
 {
 	if (spin_trylock_plain(l))
-		return;
-	while (*(volatile int*)&l->lock || !spin_trylock_plain(l))
-		cpu_relax();
+		__spin_lock(l, file, line);
+	l->file = file;
+	l->line = line;
 }
 
+static inline void spin_unlock(spinlock_t *l)
+{
+	l->file = "(none)";
+	l->line = 0;
+	spin_unlock_plain(l);
+}
 
-#ifdef SPINLOCK_DEBUG
-    #include "spinlock_debug.h"
-#else
-    #define spin_lock(__L) spin_lock_plain(__L)
-    #define spin_unlock(__L) spin_unlock_plain(__L)
-    #define spin_trylock(__L) spin_trylock_plain(__L)
-#endif
+#else /* SPINLOCK_DEBUG */
+
+void __spin_lock(spinlock_t *l);
+static inline void spin_lock(spinlock_t *l)
+{
+	if (spin_trylock_plain(l))
+		__spin_lock(l);
+};
+
+#define spin_unlock(__L) spin_unlock_plain(__L)
+
+#endif /* SPINLOCK_DEBUG */
 
 #endif
