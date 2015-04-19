@@ -2916,6 +2916,12 @@ void tc_dump_threads(const char *search)
 	struct tc_thread *t;
 	struct tc_domain *d;
 
+	/* Convenience: so you can use it as signal handler directly.
+	 * Otherwise, the signal number passed in as first argument
+	 * will be interpreted as char *, and we get a segfault. */
+	if ((void*)search <= (void*) 4096)
+		search = NULL;
+
 	d = tc_this_pthread_domain;
 	do  {
 		msg("TC domain %p:\n", d);
