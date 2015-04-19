@@ -2897,4 +2897,8 @@ void tc_dump_threads(const char *search)
 	} while (tc_this_pthread_domain != d);
 }
 
+#else
+
+void tc_dump_threads(const char *search) { }
+
 #endif
