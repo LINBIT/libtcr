@@ -458,7 +458,7 @@ static struct event_list *remove_event(struct event *e)
 	   the list lock... */
 	while(1) {
 		do el = ((volatile struct event *)e)->el; while (el == NULL);
-		spin_lock_plain(&el->lock);
+		spin_lock(&el->lock);
 		if (el == ((volatile struct event *)e)->el)
 			break;
 		spin_unlock(&el->lock);
@@ -615,7 +615,7 @@ static struct tc_thread *run_or_queue(struct event *e)
 	if (e->flags == EF_EXITING)
 		return tc;
 
-	spin_lock_plain(&tc->pending.lock);
+	spin_lock(&tc->pending.lock);
 	if (tc->flags & TF_RUNNING)
 		goto queue;
 	if (e->flags == EF_SIGNAL)
@@ -1881,7 +1881,7 @@ void tc_waitq_init(struct tc_waitq *wq)
 static void _tc_waitq_prepare_to_wait(struct tc_waitq *wq, struct event *e, struct tc_thread *tc)
 {
 	worker.woken_by_event = NULL;
-	spin_lock_plain(&wq->waiters.lock);
+	spin_lock(&wq->waiters.lock);
 	_add_event(e, &wq->waiters, tc);
 	spin_unlock(&wq->waiters.lock);
 
@@ -1905,7 +1905,7 @@ int tc_waitq_finish_wait(struct tc_waitq *wq, struct event *e)
 	 * take the event and put it on the pending queue while we're trying to
 	 * free it. */
 	spin_lock(&common.immediate.lock);
-	spin_lock_plain(&tc->pending.lock);
+	spin_lock(&tc->pending.lock);
 	was_on_top = tc->event_stack == e;
 	if (was_on_top &&
 			(!worker.woken_by_event ||
@@ -1970,7 +1970,7 @@ void tc_waitq_wakeup_one_owner(struct tc_waitq *wq, struct tc_thread **woken)
 	/* We need to lock the immediate queue first; but it might be the wrong
 	 * one. */
 	spin_lock(&common.immediate.lock);
-	spin_lock_plain(&wq->waiters.lock);
+	spin_lock(&wq->waiters.lock);
 	dom = tc_this_pthread_domain;
 	if (CIRCLEQ_EMPTY(&wq->waiters.events)) {
 		if (woken) {
@@ -2041,7 +2041,7 @@ void tc_waitq_wakeup_all(struct tc_waitq *wq)
 
 	alerted_max = 0;
 	spin_lock(&common.immediate.lock);
-	spin_lock_plain(&wq->waiters.lock);
+	spin_lock(&wq->waiters.lock);
 	while(!CIRCLEQ_EMPTY(&wq->waiters.events)) {
 		e = CIRCLEQ_FIRST(&wq->waiters.events);
 		CIRCLEQ_REMOVE(&wq->waiters.events, e, e_chain);
@@ -2148,13 +2148,13 @@ void tc_signal_unsubscribe_nofree(struct tc_signal *s, struct tc_signal_sub *ss)
 	 * wakeup_all call while we're waiting for the signals' wq lock, so we have
 	 * to remove it from there first.  */
 	spin_lock(&common.immediate.lock);
-	spin_lock_plain(&s->wq.waiters.lock);
+	spin_lock(&s->wq.waiters.lock);
 	/* DRD thinks that reading the tc is not allowed until a lock is taken...
 	 * which is basically right, although in this case event->tc should never change again.
 	 * (But it's correct that in _run_immediate => run_or_queue => _add_event the events'
 	 * e->tc is written to.) */
 	tc = ss->event.tc;
-	spin_lock_plain(&tc->pending.lock);
+	spin_lock(&tc->pending.lock);
 	LIST_REMOVE(ss, se_chain);
 	remove_event_holding_locks(&ss->event, &s->wq.waiters, &tc->pending, &common.immediate, NULL);
 	spin_unlock(&s->wq.waiters.lock);
