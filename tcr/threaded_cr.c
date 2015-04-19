@@ -612,7 +612,9 @@ static void arm_immediate(int op)
 }
 
 /* The event is not on any list.
- * Called by _run_immediate(), and so the common.immediate lock is held. */
+ * Called by _run_immediate(), where the common.immediate lock is held.
+ * Called by scheduler_part2 directly, without the immediate lock.
+ */
 static struct tc_thread *run_or_queue(struct event *e)
 {
 	struct tc_thread *tc = e->tc;
@@ -1866,13 +1868,11 @@ enum tc_rv tc_thread_wait_ref(struct tc_thread_ref *_ref)
 	}
 
 	spin_unlock(&d->lock);
-	ref.thr = NULL;
 	if (rv == RV_THREAD_NA)
 		return rv;
 
 	tc_scheduler();
 
-	/* Do not pass wait_for->exit_waiters, since wait_for might be already freed. */
 	if (tc_waitq_finish_wait(NULL, &e))
 		rv = RV_INTR;
 
