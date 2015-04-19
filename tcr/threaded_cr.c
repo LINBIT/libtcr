@@ -316,6 +316,7 @@ static __uint32_t calc_epoll_event_mask(struct events *es)
 /* must_hold tcfd->lock */
 static void move_to_immediate(struct event *e)
 {
+	__must_hold(&e->el->lock);
 	spin_lock(&common.immediate.lock);
 	CIRCLEQ_REMOVE(&e->el->events, e, e_chain);
 	e->el = &common.immediate;
@@ -439,6 +440,8 @@ static void event_list_init(struct event_list *el)
 /* must_hold el->lock */
 static void _remove_event(struct event *e, struct event_list *el)
 {
+	assert(el == e->el);
+	__must_hold(&el->lock);
 	CIRCLEQ_REMOVE(&el->events, e, e_chain);
 	if (el == &common.immediate) {
 		if (atomic_dec(&common.immediate_count) < 0) {
@@ -457,9 +460,10 @@ static struct event_list *remove_event(struct event *e)
 	/* The event can be moved to an other list while we try to grab
 	   the list lock... */
 	while(1) {
-		do el = ((volatile struct event *)e)->el; while (el == NULL);
+		while ((el = ACCESS_ONCE(e->el)) == NULL)
+			cpu_relax();
 		spin_lock(&el->lock);
-		if (el == ((volatile struct event *)e)->el)
+		if (el == ACCESS_ONCE(e->el))
 			break;
 		spin_unlock(&el->lock);
 	}
@@ -472,6 +476,7 @@ static struct event_list *remove_event(struct event *e)
 /* must_hold el->lock */
 static void _add_event(struct event *e, struct event_list *el, struct tc_thread *tc)
 {
+	__must_hold(&el->lock);
 	atomic_inc(&tc->refcnt);
 	e->tc = tc;
 	if (e->el)

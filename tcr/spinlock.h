@@ -95,6 +95,11 @@ static inline void cpu_relax(void)
 
 #ifdef SPINLOCK_DEBUG
 
+static inline void __must_hold(spinlock_t *l)
+{
+	assert(l->lock.m == this_spinlock_owner.m);
+}
+
 void __spin_lock(spinlock_t *l, char* file, int line);
 #define spin_lock(__L) _spin_lock(__L, __FILE__, __LINE__)
 static inline void _spin_lock(spinlock_t *l, char* file, int line)
@@ -113,6 +118,8 @@ static inline void spin_unlock(spinlock_t *l)
 }
 
 #else /* SPINLOCK_DEBUG */
+
+#define __must_hold(__L) do { } while (0)
 
 void __spin_lock(spinlock_t *l);
 static inline void spin_lock(spinlock_t *l)
