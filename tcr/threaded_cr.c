@@ -450,10 +450,6 @@ static void _remove_event(struct event *e, struct event_list *el)
 	e->el = NULL;
 }
 
-
-/* This function might be called with the common.immediate lock
- * held; in these cases we must not recurse into tc_yield(),
- * so use spin_lock_plain(). */
 static struct event_list *remove_event(struct event *e)
 {
 	struct event_list *el;
@@ -2902,9 +2898,3 @@ void tc_dump_threads(const char *search)
 }
 
 #endif
-
-void _bug_if_holds_immediate(struct tc_thread *who)
-{
-	if (common.immediate.lock.holding_thread == who)
-		msg_exit(1, "Immediate Spinlock recursively locked: %s\n", who->name);
-}

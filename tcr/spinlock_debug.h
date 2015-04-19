@@ -11,9 +11,6 @@
 #include "coroutines.h"
 
 
-extern void _bug_if_holds_immediate(struct tc_thread *who);
-
-
 #define spin_lock(LOCK)  __spin_lock(LOCK, *((char **)cr_uptr(cr_current())), __FILE__, __LINE__)
 #define spin_trylock(LOCK)  __spin_trylock(LOCK, *((char **)cr_uptr(cr_current())), __FILE__, __LINE__)
 
@@ -54,8 +51,6 @@ static inline void __spin_lock(spinlock_t *l, char* holder, char* file, int line
 	int num_delays = /* two minutes in micro seconds / micro sec per delay */
 		120 * 1000 * 1000 / delay_usec;
 
-	if (cr_current())
-		_bug_if_holds_immediate(cr_uptr(cr_current()));
 	if (spin_trylock_plain(l))
 		goto got_it;
 /*
