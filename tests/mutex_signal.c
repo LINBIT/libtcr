@@ -22,10 +22,10 @@ void worker(void *ttf_vp)
 {
 	int i;
 	struct tc_signal_sub *ss;
-	int me = 1 << (atomic_inc(&number) -1);
+	uint64_t me = 1ULL << (atomic_inc(&number) -1);
 
 	ss = tc_signal_subscribe(&the_drbd_signal);
-	printf("%p is %x\n", tc_current(), me);
+	printf("%p is %lx\n", tc_current(), me);
 
 	while (!stop) {
 		i = tc_mutex_lock(&m);
@@ -42,7 +42,8 @@ void starter(void *unused)
 {
 	struct tc_thread_pool t;
 	struct tc_fd *the_tc_fd = tc_register_fd(0);
-	int i, expect, got, d;
+	int i, d;
+	uint64_t expect, got;
 
 	tc_signal_init(&the_drbd_signal);
 	tc_mutex_init(&m);
@@ -50,7 +51,7 @@ void starter(void *unused)
 	tc_thread_pool_new(&t, worker, the_tc_fd, "worker", 0);
 
 	tc_sleep(CLOCK_MONOTONIC, 0, 20e6);
-	expect = (1 << tc_thread_count()) -1;
+	expect = ~0ULL >> (64 - tc_thread_count());
 
 	for(i=0; i<SIGNALS_TO_SEND; i++) {
 		/* Send a signal, then check that it arrived. */
@@ -69,7 +70,7 @@ void starter(void *unused)
 		}
 
 		if (got != expect) {
-			printf("signalled - expected %x, got %x; missing %x\n", expect, got, expect ^ got);
+			printf("signalled - expected %lx, got %lx; missing %lx\n", expect, got, expect ^ got);
 			assert(0);
 		}
 		atomic_set(&signalled, 0);
@@ -87,7 +88,7 @@ void starter(void *unused)
 int main(int argc, char *args[])
 {
 	if (argc == 1)
-		tc_run(starter, NULL, "test", 0);
+		tc_run(starter, NULL, "test", 64);
 
 	return 0;
 }
