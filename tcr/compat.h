@@ -54,4 +54,35 @@ static inline int tgkill (pid_t tgid, pid_t tid, int sig)
 #define MAP_STACK       0x20000
 #endif
 
+/** BUILD_BUG *********************************************************/
+#if GCC_VERSION >= 40300
+#define __cold			__attribute__((__cold__))
+# define __compiletime_warning(message) __attribute__((warning(message)))
+# define __compiletime_error(message) __attribute__((error(message)))
+#endif /* GCC_VERSION >= 40300 */
+
+#ifndef __compiletime_error
+# define __compiletime_error(message)
+#endif
+
+#define __compiletime_assert(condition, msg, prefix, suffix)		\
+	do {								\
+		bool __cond = !(condition);				\
+		extern void prefix ## suffix(void) __compiletime_error(msg); \
+		if (__cond)						\
+			prefix ## suffix();				\
+		__compiletime_error_fallback(__cond);			\
+	} while (0)
+#  define __compiletime_error_fallback(condition) \
+	do { ((void)sizeof(char[1 - 2 * condition])); } while (0)
+#define _compiletime_assert(condition, msg, prefix, suffix) \
+	__compiletime_assert(condition, msg, prefix, suffix)
+#define compiletime_assert(condition, msg) \
+	_compiletime_assert(condition, msg, __compiletime_assert_, __LINE__)
+#define BUILD_BUG_ON_MSG(cond, msg) compiletime_assert(!(cond), msg)
+#define BUILD_BUG_ON(condition) \
+	BUILD_BUG_ON_MSG(condition, "BUILD_BUG_ON failed: " #condition)
+#define BUILD_BUG() BUILD_BUG_ON_MSG(1, "BUILD_BUG failed")
+/**********************************************************************/
+
 #endif
