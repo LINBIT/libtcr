@@ -37,6 +37,7 @@
 #include <aio.h>
 #include <assert.h>
 #include <sched.h>
+#include <ucontext.h>
 
 #include "compat.h"
 #include "atomic.h"
@@ -217,7 +218,7 @@ __thread struct tc_domain *tc_this_pthread_domain = NULL;
 #define tc_this_pthread_domain tc_this_pthread_domain
 
 static struct tc_thread_ref tc_main;
-static __thread struct worker_struct worker;
+static __thread struct worker_struct *worker;
 
 static void new_domain(struct tc_domain **pd)
 {
@@ -337,7 +338,7 @@ static struct event *matching_event(__uint32_t em, struct events *es)
 		if (em & e->ep_events & EPOLLIN) {
 			if (!in)
 				in = e;
-			if (e->tc->worker_nr == worker.nr)
+			if (e->tc->worker_nr == worker->nr)
 				ew = in = e;
 			if (e->flags == EF_PRIORITY) {
 				em &= ~EPOLLIN;
@@ -348,7 +349,7 @@ static struct event *matching_event(__uint32_t em, struct events *es)
 		if (em & e->ep_events & EPOLLOUT) {
 			if (!out)
 				out = e;
-			if (e->tc->worker_nr == worker.nr)
+			if (e->tc->worker_nr == worker->nr)
 				ew = out = e;
 			if (e->flags == EF_PRIORITY) {
 				em &= ~EPOLLOUT;
@@ -393,7 +394,7 @@ static struct event *wakeup_all_events(struct events *es)
 		/* Remember next element; we don't have the pointer anymore after the
 		 * move_to_immediate().  */
 		next = e->e_chain.cqe_next;
-		if (!ew && e->tc->worker_nr == worker.nr) {
+		if (!ew && e->tc->worker_nr == worker->nr) {
 			ew = e;
 			continue;
 		}
@@ -556,7 +557,7 @@ static void _switch_to(struct tc_thread *new)
 	struct tc_thread *previous;
 
 	/* previous = tc_current();
-	   printf(" (%d) switch: %s -> %s\n", worker.nr, previous->name, new->name); */
+	   printf(" (%d) switch: %s -> %s\n", worker->nr, previous->name, new->name); */
 
 	if (!new->cr)
 		msg_exit(1, "die!\n");
@@ -579,13 +580,13 @@ static void _switch_to(struct tc_thread *new)
 
 static void switch_to(struct tc_thread *new)
 {
-	int nr = worker.nr;
+	int nr = worker->nr;
 
 	if (new->worker_nr != nr) {
 		if (!(new->flags & TF_AFFINE))
 			new->worker_nr = nr;
 	}
-	new->last_worker = &worker;
+	new->last_worker = worker;
 	_switch_to(new);
 }
 
@@ -638,7 +639,7 @@ static struct tc_thread *run_or_queue(struct event *e)
 	{
 queue:
 		if (e->flags != EF_SIGNAL)
-			e->tcfd = worker.woken_by_tcfd;
+			e->tcfd = worker->woken_by_tcfd;
 		_add_event(e, &tc->pending, tc);
 		spin_unlock(&tc->pending.lock);
 		return NULL;
@@ -657,7 +658,7 @@ start_thread:
 	if (e->flags == EF_SIGNAL)
 		_signal_gets_delivered(e);
 
-	worker.woken_by_event = e;
+	worker->woken_by_event = e;
 
 	return tc;
 }
@@ -671,7 +672,7 @@ static int _run_immediate(int nr)
 search_loop:
 	spin_lock(&common.immediate.lock);
 search_loop_locked:
-	worker.woken_by_tcfd  = NULL;
+	worker->woken_by_tcfd  = NULL;
 	CIRCLEQ_FOREACH(e, &common.immediate.events, e_chain) {
 		assert(e->domain == e->tc->domain);
 		if (e->domain != tc_this_pthread_domain)
@@ -727,7 +728,7 @@ static int run_immediate()
 		 * if there are few threads on there. */
 		if (atomic_read(&common.immediate_count) <
 				tc_this_pthread_domain->nr_of_workers * 2) {
-			did = _run_immediate(worker.nr);
+			did = _run_immediate(worker->nr);
 			did = _run_immediate(FREE_WORKER) || did;
 		}
 		did = _run_immediate(ANY_WORKER) || did;
@@ -773,14 +774,14 @@ int tc_sched_yield()
 	add_event_cr(&e, 0, EF_READY, tc);
 	_tc_event_on_tc_stack(&e, tc);
 	tc_scheduler();
-	if (worker.woken_by_event != &e)
+	if (worker->woken_by_event != &e)
 	{
 		ret = RV_INTR;
 		remove_event(&e);
 	}
 	else
 		/* May not be accessed anymore. */
-		worker.woken_by_event = NULL;
+		worker->woken_by_event = NULL;
 	tc->event_stack = e.next_in_stack;
 
 	return ret;
@@ -817,8 +818,8 @@ return_this:
 		spin_unlock(&tc->pending.lock);
 		if (e->flags == EF_SIGNAL)
 			_signal_gets_delivered(e);
-		worker.woken_by_tcfd  = e->tcfd;
-		worker.woken_by_event = e;
+		worker->woken_by_tcfd  = e->tcfd;
+		worker->woken_by_event = e;
 		return;
 	}
 
@@ -833,7 +834,7 @@ wait_for_another:
 #ifdef WAIT_DEBUG
 #endif
 
-	_switch_to(&worker.sched_p2); /* always -> scheduler_part2()*/
+	_switch_to(&worker->sched_p2); /* always -> scheduler_part2()*/
 }
 
 
@@ -911,7 +912,7 @@ static void scheduler_part2()
 			if (er >= 0)
 				break; /* There's something to handle */
 			if (errno == EINTR) {
-				if (worker.must_sync) {
+				if (worker->must_sync) {
 					/* Sync necessary */
 					epe.data.u64 = IWI_SYNC;
 					break;
@@ -1010,7 +1011,7 @@ static void scheduler_part2()
 			continue;
 		}
 
-		worker.woken_by_tcfd = tcfd;
+		worker->woken_by_tcfd = tcfd;
 		_remove_event(e, &tcfd->events);
 		tc = run_or_queue(e);
 
@@ -1031,12 +1032,12 @@ void tc_worker_init(void)
 
 	/* From tc_run() for main thread, but not twice
 	 * (from tc_new_domain()) */
-	if (worker.is_init)
+	if (worker)
 		return;
 
-	i = atomic_inc(&common.pthread_counter) - 1;
+	worker = calloc(1, sizeof(*worker));
 
-	cr_init();
+	i = atomic_inc(&common.pthread_counter) - 1;
 
 	my_cpu = i % CPU_COUNT(&common.available_cpus);
 	CPU_ZERO(&cpu_mask);
@@ -1056,46 +1057,46 @@ found_cpu:
 	if (pthread_setaffinity_np(pthread_self(), sizeof(cpu_mask), &cpu_mask))
 		msg_exit(1, "sched_setaffinity(%d): %m\n", i);
 
-	worker.nr = i;
-	worker.tid = syscall(__NR_gettid);
-	this_spinlock_owner.tid = worker.tid;
+	worker->nr = i;
+	worker->tid = syscall(__NR_gettid);
+	this_spinlock_owner.tid = worker->tid;
 	this_spinlock_owner.cpu = my_cpu;
 
-	rv |= asprintf(&worker.main_thread.name, "main_thread_%d", i);
-	worker.main_thread.domain = tc_this_pthread_domain;
-	worker.main_thread.cr = cr_current();
-	cr_set_uptr(cr_current(), &worker.main_thread);
-	tc_waitq_init(&worker.main_thread.exit_waiters);
-	atomic_set(&worker.main_thread.refcnt, 0);
-	spin_lock_init(&worker.main_thread.running);
-	spin_lock(&worker.main_thread.running); /* runs currently */
-	worker.main_thread.flags = TF_RUNNING;
-	event_list_init(&worker.main_thread.pending);
-	worker.main_thread.worker_nr = i;
-	/* LIST_INSERT_HEAD(&tc_this_pthread_domain->threads, &worker.main_thread, tc_chain); */
+	rv |= asprintf(&worker->main_thread.name, "main_thread_%u_%u", i, worker->tid);
+	worker->main_thread.domain = tc_this_pthread_domain;
+	worker->main_thread.cr = cr_current();
+	cr_set_uptr(cr_current(), &worker->main_thread);
+	tc_waitq_init(&worker->main_thread.exit_waiters);
+	atomic_set(&worker->main_thread.refcnt, 0);
+	spin_lock_init(&worker->main_thread.running);
+	spin_lock(&worker->main_thread.running); /* runs currently */
+	worker->main_thread.flags = TF_RUNNING;
+	event_list_init(&worker->main_thread.pending);
+	worker->main_thread.worker_nr = i;
+	/* LIST_INSERT_HEAD(&tc_this_pthread_domain->threads, &worker->main_thread, tc_chain); */
 
-	rv |= asprintf(&worker.sched_p2.name, "sched_%d", worker.tid);
+	rv |= asprintf(&worker->sched_p2.name, "sched_%d", worker->tid);
 	if (rv == -1)
 		msg_exit(1, "allocation in asprintf() failed\n");
-	worker.sched_p2.cr = cr_create(scheduler_part2, NULL, NULL, DEFAULT_STACK_SIZE);
-	if (!worker.sched_p2.cr)
-		msg_exit(1, "allocation of worker.sched_p2 failed\n");
+	worker->sched_p2.cr = cr_create(scheduler_part2, NULL, NULL, DEFAULT_STACK_SIZE);
+	if (!worker->sched_p2.cr)
+		msg_exit(1, "allocation of worker->sched_p2 failed\n");
 
-	cr_set_uptr(worker.sched_p2.cr, &worker.sched_p2);
-	tc_waitq_init(&worker.sched_p2.exit_waiters);
-	atomic_set(&worker.sched_p2.refcnt, 0);
-	spin_lock_init(&worker.sched_p2.running);
-	worker.sched_p2.flags = 0;
-	event_list_init(&worker.sched_p2.pending);
-	worker.sched_p2.worker_nr = i;
-	worker.must_sync = 0;
-	worker.is_on_sleeping_list = 0;
-	worker.is_init = 1;
+	cr_set_uptr(worker->sched_p2.cr, &worker->sched_p2);
+	tc_waitq_init(&worker->sched_p2.exit_waiters);
+	atomic_set(&worker->sched_p2.refcnt, 0);
+	spin_lock_init(&worker->sched_p2.running);
+	worker->sched_p2.flags = 0;
+	event_list_init(&worker->sched_p2.pending);
+	worker->sched_p2.worker_nr = i;
+	worker->must_sync = 0;
+	worker->is_on_sleeping_list = 0;
+	worker->is_init = 1;
 
 	spin_lock(&tc_this_pthread_domain->worker_list_lock);
-	LIST_INSERT_HEAD(&tc_this_pthread_domain->worker_list, &worker, worker_chain);
+	LIST_INSERT_HEAD(&tc_this_pthread_domain->worker_list, worker, worker_chain);
 	spin_unlock(&tc_this_pthread_domain->worker_list_lock);
-	setpriority(PRIO_PROCESS, worker.tid, tc_this_pthread_domain->nice_level);
+	setpriority(PRIO_PROCESS, worker->tid, tc_this_pthread_domain->nice_level);
 
 
 }
@@ -1166,17 +1167,46 @@ static void tc_aio_init(void)
 		msg_exit(1, "io_setup failed with %m\n");
 }
 
+/*
+ * The issue: the threaded coroutines, even if created in this pthread,
+ * are free to migrate over all pthreads in the pool,
+ * and may exit in a different pthread then they have been created in.
+ * They must not reference anything on the default stack of any pthread,
+ * because during exit, those pthreads exiting later would no longer be able to
+ * access the stack of the pthreads that are already gone.
+ *
+ * Start the whole thing in its own context, and make sure when the "tc_main"
+ * context is done, to jump into the default context of the pthread it happens
+ * to be in at that point.
+ */
+static __thread unsigned int pt_done = 0;
+
+void __tc_main()
+{
+	tc_worker_init();
+	tc_thread_wait_ref(&tc_main); /* calls tc_scheduler() */
+	_iwi_immediate(tc_this_pthread_domain); /* All other workers need to get woken UNCONDITIONALLY
+			     So that the complete program can terminate */
+	struct tc_thread *tc = tc_current();
+	pt_done = 1;
+	/* About to return from this pthread.
+	 * MUST NOT free(worker); other pthreads may still process coroutines
+	 * referencing stuff from this pthreads worker... */
+	cr_exit();
+}
+
+void call_tc_main()
+{
+	struct coroutine *co = cr_create(__tc_main, NULL, NULL, tc_this_pthread_domain->stack_size);
+	cr_init(co);
+	assert(pt_done);
+}
 
 static void *worker_pthread(void *_s)
 {
 	assert(_s);
 	tc_this_pthread_domain = _s;
-
-	tc_worker_init();
-	tc_thread_wait_ref(&tc_main); /* calls tc_scheduler() */
-
-	_iwi_immediate(tc_this_pthread_domain); /* All other workers need to get woken UNCONDITIONALLY
-			     So that the complete program can terminate */
+	call_tc_main();
 	return NULL;
 }
 
@@ -1189,8 +1219,6 @@ struct tc_domain *_setup_domain(struct tc_domain *n_d, int nr_of_workers)
 	WITH_OTHER_DOMAIN_BEGIN(n_d);
 
 	tc_init();
-	tc_worker_init();
-
 
 	avail_cpu = CPU_COUNT(&common.available_cpus);
 	if (nr_of_workers <= 0) {
@@ -1208,7 +1236,6 @@ struct tc_domain *_setup_domain(struct tc_domain *n_d, int nr_of_workers)
 	n_d->last_thread_id = rand();
 
 	tc_aio_init();
-
 
 	threads = malloc(sizeof(pthread_t) * nr_of_workers);
 	tc_this_pthread_domain->pthreads = threads;
@@ -1272,12 +1299,11 @@ void tc_run(void (*func)(void *), void *data, char* name, int nr_of_workers)
 	/* New scheduler domain becomes "default" */
 	tc_this_pthread_domain = n_d;
 
-	tc_worker_init();
 	tc_main = tc_thread_new_ref(func, data, name);
 
 	start_pthreads(n_d, 1);
 
-	tc_thread_wait_ref(&tc_main); /* calls tc_scheduler() */
+	call_tc_main();
 
 	for (i = 1; i < nr_of_workers; i++)
 		pthread_join(n_d->pthreads[i], NULL);
@@ -1310,8 +1336,8 @@ enum tc_rv _tc_wait_fd(__uint32_t ep_events, struct tc_fd *tcfd, enum tc_event_f
 		return RV_FAILED;
 	_tc_event_on_tc_stack(&e, tc);
 	tc_scheduler();
-	r = (worker.woken_by_event != &e);
-	worker.woken_by_event = NULL;
+	r = (worker->woken_by_event != &e);
+	worker->woken_by_event = NULL;
 	tc->event_stack = e.next_in_stack;
 	/* Have to reprogram either way. */
 	tcfd->ep_events = 0;
@@ -1326,7 +1352,7 @@ void tc_die()
 {
 	struct tc_thread *tc = tc_current();
 
-	/* printf(" (%d) exiting: %s\n", worker.nr, tc->name); */
+	/* printf(" (%d) exiting: %s\n", worker->nr, tc->name); */
 
 	spin_lock(&tc_this_pthread_domain->lock);
 	LIST_REMOVE(tc, tc_chain);
@@ -1348,7 +1374,7 @@ void tc_die()
 
 	add_event_cr(&tc->e, 0, EF_EXITING, tc);  /* The scheduler will free me */
 	iwi_immediate(tc_this_pthread_domain);
-	_switch_to(&worker.sched_p2); /* like tc_scheduler(); but avoids deadlocks */
+	_switch_to(&worker->sched_p2); /* like tc_scheduler(); but avoids deadlocks */
 	msg_exit(1, "tc_scheduler() returned in tc_die() [flags = %d]\n", &tc->flags);
 }
 
@@ -1359,7 +1385,7 @@ void tc_setup(void *arg1, void *arg2)
 
 	spin_unlock(&previous->running);
 
-	worker.woken_by_event = NULL;
+	worker->woken_by_event = NULL;
 
 	func(arg2);
 
@@ -1395,7 +1421,7 @@ static struct tc_thread *_tc_thread_setup(void (*func)(void *), void *data, char
 	atomic_set(&tc->signals_since_last_query, 0);
 	tc->event_stack = NULL;
 	tc->domain = tc_this_pthread_domain;
-	tc->last_worker = &worker;
+	tc->last_worker = worker;
 
 	for(i=0; i<TC_AIO_REQUESTS_PER_TC_THREAD; i++)
 		tc_aio_data_init(tc->aio + i);
@@ -1665,10 +1691,10 @@ static void _process_free_list(spinlock_t *lock_to_free)
 static void worker_prepare_sleep()
 {
 	spin_lock(&tc_this_pthread_domain->sync_lock);
-	if (!worker.is_on_sleeping_list) {
-		CLIST_INSERT_AFTER(&tc_this_pthread_domain->sleeping_workers, &worker.sleeping_chain);
+	if (!worker->is_on_sleeping_list) {
+		CLIST_INSERT_AFTER(&tc_this_pthread_domain->sleeping_workers, &worker->sleeping_chain);
 	}
-	worker.is_on_sleeping_list = 1;
+	worker->is_on_sleeping_list = 1;
 	spin_unlock(&tc_this_pthread_domain->sync_lock);
 }
 
@@ -1680,13 +1706,13 @@ static void worker_after_sleep()
 	/* These two checks have to made atomically w.r.t. sync_lock. */
 	spin_lock(&tc_this_pthread_domain->sync_lock);
 	have_lock = 1;
-	if (worker.is_on_sleeping_list)
+	if (worker->is_on_sleeping_list)
 	{
-		CLIST_REMOVE(&worker.sleeping_chain);
-		worker.is_on_sleeping_list = 0;
+		CLIST_REMOVE(&worker->sleeping_chain);
+		worker->is_on_sleeping_list = 0;
 	}
-	if (worker.must_sync) {
-		worker.must_sync = 0;
+	if (worker->must_sync) {
+		worker->must_sync = 0;
 		new = atomic_dec(&tc_this_pthread_domain->sync_barrier);
 		if (new == 0)
 		{
@@ -1888,13 +1914,13 @@ void tc_waitq_init(struct tc_waitq *wq)
  * so common.immediate is held */
 static void _tc_waitq_prepare_to_wait(struct tc_waitq *wq, struct event *e, struct tc_thread *tc)
 {
-	worker.woken_by_event = NULL;
+	worker->woken_by_event = NULL;
 	spin_lock(&wq->waiters.lock);
 	_add_event(e, &wq->waiters, tc);
-	spin_unlock(&wq->waiters.lock);
 
 	if (e->flags != EF_SIGNAL)
 		_tc_event_on_tc_stack(e, tc);
+	spin_unlock(&wq->waiters.lock);
 }
 
 void tc_waitq_prepare_to_wait(struct tc_waitq *wq, struct event *e)
@@ -1916,8 +1942,8 @@ int tc_waitq_finish_wait(struct tc_waitq *wq, struct event *e)
 	spin_lock(&tc->pending.lock);
 	was_on_top = tc->event_stack == e;
 	if (was_on_top &&
-			(!worker.woken_by_event ||
-			 worker.woken_by_event == e)) {
+			(!worker->woken_by_event ||
+			 worker->woken_by_event == e)) {
 		/* Optimal case - the event that got active was the one we expected. */
 		tc->event_stack = e->next_in_stack;
 		assert((unsigned long)tc->event_stack != (0xafafafafafafafafULL & ULONG_MAX));
@@ -1926,7 +1952,7 @@ int tc_waitq_finish_wait(struct tc_waitq *wq, struct event *e)
 		assert(!e->el);
 		spin_unlock(&tc->pending.lock);
 		spin_unlock(&common.immediate.lock);
-		worker.woken_by_event = NULL;
+		worker->woken_by_event = NULL;
 
 		return 0;
 	}
@@ -1934,19 +1960,19 @@ int tc_waitq_finish_wait(struct tc_waitq *wq, struct event *e)
 
 	/* We need to hold the locks here, so that no other thread can put the
 	 * signal event on the immediate queue. */
-	assert(worker.woken_by_event->flags == EF_SIGNAL);
+	assert(worker->woken_by_event->flags == EF_SIGNAL);
 	was_active = (e->el == &tc->pending) || (e->el == &common.immediate);
 	remove_event_holding_locks(e, &tc->pending, &common.immediate, NULL);
-	/* worker.woken_by_event should be on the signal list, and stay
+	/* worker->woken_by_event should be on the signal list, and stay
 	 * there.  */
 
 	if (was_active) {
 		/* We got a signal, but the expected event got active, too.
 		 * Requeue the signal and return OK. */
-		remove_event_holding_locks(worker.woken_by_event, &tc->pending, &common.immediate, NULL);
+		remove_event_holding_locks(worker->woken_by_event, &tc->pending, &common.immediate, NULL);
 		assert(!e->el);
-		_add_event(worker.woken_by_event, &tc->pending, tc);
-		worker.woken_by_event = NULL;
+		_add_event(worker->woken_by_event, &tc->pending, tc);
+		worker->woken_by_event = NULL;
 
 		tc->event_stack = e->next_in_stack;
 		assert((unsigned long)tc->event_stack != (0xafafafafafafafafULL & ULONG_MAX));

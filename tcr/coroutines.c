@@ -40,19 +40,35 @@ struct coroutine {
 	ucontext_t ctx;
 };
 
+/* outer, default pthread context */
 static __thread struct coroutine co_main;
+/* currently active context */
 __thread struct coroutine *__cr_current;
 
-void cr_init()
+void cr_init(struct coroutine *co)
 {
-	__cr_current = &co_main;
-
+	co_main.uptr = NULL;
 	if (getcontext(&co_main.ctx)) {
-		fprintf(stderr, "getcontext() failed.\n");
+		fprintf(stderr, "cr_init: getcontext() failed.\n");
 		exit(1);
 	}
+	if (co_main.uptr)
+		return;
 
-	co_main.uptr = NULL;
+	__cr_current = co;
+	if (!setcontext(&co->ctx)) {
+		fprintf(stderr, "cr_init: setcontext() failed.\n");
+		exit(1);
+	}
+}
+
+void cr_exit()
+{
+	co_main.uptr = (void*)1;
+	if (!setcontext(&co_main.ctx)) {
+		fprintf(stderr, "cr_exit: setcontext() failed.\n");
+		exit(1);
+	}
 }
 
 /* Arglbargl: Why the hell passes makecontext only integer arguments instead of void*

@@ -29,7 +29,8 @@ extern __thread struct coroutine *__cr_current;
 struct coroutine *cr_create(void (*func)(void *, void *), void *arg1, void *arg2, int stack_size);
 void cr_call(struct coroutine *cr);
 void cr_return();
-void cr_init();
+void cr_init(struct coroutine *cr);
+void cr_exit();
 void cr_delete(struct coroutine *cr);
 
 static inline struct coroutine *cr_current(void)
