@@ -202,7 +202,6 @@ __thread char *_caller_file = "untracked tc_scheduler() call";
 __thread int _caller_line = 0;
 #endif
 
-static void _signal_gets_delivered(struct event *e);
 static void signal_cancel_pending();
 static void worker_prepare_sleep();
 static void worker_after_sleep();
@@ -438,18 +437,22 @@ static void event_list_init(struct event_list *el)
 	spin_lock_init(&el->lock);
 }
 
-/* must_hold el->lock */
-static void _remove_event(struct event *e, struct event_list *el)
+static void __remove_event(struct event *e)
 {
-	assert(el == e->el);
-	__must_hold(&el->lock);
-	CIRCLEQ_REMOVE(&el->events, e, e_chain);
-	if (el == &common.immediate) {
+	__must_hold(&e->el->lock);
+	CIRCLEQ_REMOVE(&e->el->events, e, e_chain);
+	if (e->el == &common.immediate) {
 		if (atomic_dec(&common.immediate_count) < 0) {
 			msg("IMM < 0");
 			atomic_set(&common.immediate_count, 0);
 		}
 	}
+}
+
+static void _remove_event(struct event *e, struct event_list *el)
+{
+	assert(el == e->el);
+	__remove_event(e);
 	atomic_dec(&e->tc->refcnt);
 	e->el = NULL;
 }
@@ -509,15 +512,30 @@ unlock:
 	return rv;
 }
 
+static void move_event(struct event *e, struct event_list *target)
+{
+	__must_hold(&e->el->lock);
+	__must_hold(&target->lock);
+	assert(e->el != target);
+	__remove_event(e);
+	e->el = target;
+	CIRCLEQ_INSERT_TAIL(&target->events, e, e_chain);
+}
+
+/* if you already hold tc->pending.lock: */
+inline static void __tc_event_on_tc_stack(struct event *e, struct tc_thread *tc)
+{
+	assert((unsigned long)tc->event_stack != (0xafafafafafafafafULL & ULONG_MAX));
+	e->next_in_stack = tc->event_stack;
+	tc->event_stack = e;
+}
+
 inline static void _tc_event_on_tc_stack(struct event *e, struct tc_thread *tc)
 {
 	spin_lock(&tc->pending.lock);
-	e->next_in_stack = tc->event_stack;
-	tc->event_stack = e;
-	assert((unsigned long)tc->event_stack != (0xafafafafafafafafULL & ULONG_MAX));
+	__tc_event_on_tc_stack(e, tc);
 	spin_unlock(&tc->pending.lock);
 }
-
 
 static void add_event_cr(struct event *e, __uint32_t ep_events, enum tc_event_flag flags, struct tc_thread *tc)
 {
@@ -612,53 +630,64 @@ static void arm_immediate(int op)
 		msg_exit(1, "epoll_ctl for immediate arm failed with %m\n");
 }
 
-/* The event is not on any list.
+/* The event is supposed to be on some list.
+ * We may remove it, or move it to some other list.
  * Called by _run_immediate(), where the common.immediate lock is held.
  * Called by scheduler_part2 directly, without the immediate lock.
  */
 static struct tc_thread *run_or_queue(struct event *e)
 {
 	struct tc_thread *tc = e->tc;
+	spinlock_t *pending_lock = &tc->pending.lock;
+	struct event_list *waiters =
+		e->flags == EF_SIGNAL ? &e->signal->wq.waiters : NULL;
 
-	if (e->flags == EF_EXITING)
+	assert(e->el);
+	if (e->flags == EF_EXITING) {
+		_remove_event(e, &common.immediate);
 		return tc;
-
-	spin_lock(&tc->pending.lock);
-	if (tc->flags & TF_RUNNING)
-		goto queue;
-	if (e->flags == EF_SIGNAL)
-		goto start_thread;
-	if (!tc->event_stack)
-		goto start_thread;
-	if (e == tc->event_stack)
-		goto start_thread;
-
-	/* Some event, but not the top-most event of this thread.
-	 * Eg. tc_waitq_wait_event() had a tc_sleep() within the
-	 * condition, and the outer wq has fired. */
-	{
-queue:
-		if (e->flags != EF_SIGNAL)
-			e->tcfd = worker->woken_by_tcfd;
-		_add_event(e, &tc->pending, tc);
-		spin_unlock(&tc->pending.lock);
-		return NULL;
 	}
 
-start_thread:
-	__sync_or_and_fetch(&tc->flags, TF_RUNNING);
+	spin_lock(pending_lock);
+	if (waiters)
+		spin_lock(&waiters->lock);
 
-#ifdef WAIT_DEBUG
-	tc->sleep_file = "running";
-	tc->sleep_line = 0;
-#endif
+	if (tc->flags & TF_RUNNING ||
+		(e->flags != EF_SIGNAL &&
+		 tc->event_stack != NULL &&
+		 tc->event_stack != e)) {
 
-	spin_unlock(&tc->pending.lock);
+		/* Some event, but not the top-most event of this thread.
+		 * Eg. tc_waitq_wait_event() had a tc_sleep() within the
+		 * condition, and the outer wq has fired. */
 
-	if (e->flags == EF_SIGNAL)
-		_signal_gets_delivered(e);
+		if (e->flags != EF_SIGNAL)
+			e->tcfd = worker->woken_by_tcfd;
+		move_event(e, &tc->pending);
+		tc = NULL;
+	} else {
+		__sync_or_and_fetch(&tc->flags, TF_RUNNING);
 
-	worker->woken_by_event = e;
+	#ifdef WAIT_DEBUG
+		tc->sleep_file = "running";
+		tc->sleep_line = 0;
+	#endif
+
+		/* used to be
+		 * _signal_gets_delivered()
+		 *   _tc_waitq_prepare_to_wait(),
+		 * releasing and re-taking spinlocks,
+		 * and doing and immediately undoing other stuff */
+		if (e->flags == EF_SIGNAL)
+			move_event(e, waiters);
+		else
+			_remove_event(e, e->el);
+		worker->woken_by_event = e;
+	}
+
+	if (waiters)
+		spin_unlock(&waiters->lock);
+	spin_unlock(pending_lock);
 
 	return tc;
 }
@@ -683,7 +712,6 @@ search_loop_locked:
 			 !(e->tc->flags & TF_AFFINE) : 0);
 		if (!wanted)
 			continue;
-		_remove_event(e, &common.immediate);
 		tc = run_or_queue(e);
 		if (!tc) {
 			/* We don't know what the queue looks like, so start at the
@@ -814,12 +842,27 @@ void tc_scheduler(void)
 		}
 
 return_this:
-		_remove_event(e, &tc->pending);
-		spin_unlock(&tc->pending.lock);
-		if (e->flags == EF_SIGNAL)
-			_signal_gets_delivered(e);
-		worker->woken_by_tcfd  = e->tcfd;
+		/* used to be
+		 * _signal_gets_delivered()
+		 *   _tc_waitq_prepare_to_wait(),
+		 * releasing and re-taking spinlocks,
+		 * and doing and immediately undoing other stuff */
+		if (e->flags == EF_SIGNAL) {
+			assert(e->signal);
+			spin_lock(&e->signal->wq.waiters.lock);
+			move_event(e, &e->signal->wq.waiters);
+			spin_unlock(&e->signal->wq.waiters.lock);
+		}
+		else
+			_remove_event(e, &tc->pending);
 		worker->woken_by_event = e;
+		worker->woken_by_tcfd  = e->tcfd;
+		spin_unlock(&tc->pending.lock);
+		/* Stay in same context, we still have something to do!
+		 * Is this really such a good idea?
+		 * Context may monopolize this pthread, *even though*
+		 * it thought it used tc_* primitives to be cooperative.
+		 */
 		return;
 	}
 
@@ -1012,7 +1055,6 @@ static void scheduler_part2()
 		}
 
 		worker->woken_by_tcfd = tcfd;
-		_remove_event(e, &tcfd->events);
 		tc = run_or_queue(e);
 
 		spin_unlock(&tcfd->events.lock);
@@ -1187,7 +1229,6 @@ void __tc_main()
 	tc_thread_wait_ref(&tc_main); /* calls tc_scheduler() */
 	_iwi_immediate(tc_this_pthread_domain); /* All other workers need to get woken UNCONDITIONALLY
 			     So that the complete program can terminate */
-	struct tc_thread *tc = tc_current();
 	pt_done = 1;
 	/* About to return from this pthread.
 	 * MUST NOT free(worker); other pthreads may still process coroutines
@@ -1910,17 +1951,17 @@ void tc_waitq_init(struct tc_waitq *wq)
 	event_list_init(&wq->waiters);
 }
 
-/* Called by _run_immediate => run_or_queue => _signal_gets_delivered,
- * so common.immediate is held */
 static void _tc_waitq_prepare_to_wait(struct tc_waitq *wq, struct event *e, struct tc_thread *tc)
 {
 	worker->woken_by_event = NULL;
+	spin_lock(&tc->pending.lock);
 	spin_lock(&wq->waiters.lock);
 	_add_event(e, &wq->waiters, tc);
 
 	if (e->flags != EF_SIGNAL)
-		_tc_event_on_tc_stack(e, tc);
+		__tc_event_on_tc_stack(e, e->tc);
 	spin_unlock(&wq->waiters.lock);
+	spin_unlock(&tc->pending.lock);
 }
 
 void tc_waitq_prepare_to_wait(struct tc_waitq *wq, struct event *e)
@@ -1978,8 +2019,8 @@ int tc_waitq_finish_wait(struct tc_waitq *wq, struct event *e)
 		assert((unsigned long)tc->event_stack != (0xafafafafafafafafULL & ULONG_MAX));
 	}
 
-	spin_unlock(&common.immediate.lock);
 	spin_unlock(&tc->pending.lock);
+	spin_unlock(&common.immediate.lock);
 	return !was_active;
 }
 
@@ -2137,11 +2178,6 @@ void tc_signal_init(struct tc_signal *s)
 	LIST_INIT(&s->sss);
 }
 
-static void _signal_gets_delivered(struct event *e)
-{
-	_tc_waitq_prepare_to_wait(&e->signal->wq, e, e->tc);
-}
-
 struct tc_signal_sub *tc_signal_subscribe_exist(struct tc_signal *s, struct tc_signal_sub *ss)
 {
 	/* First set the whole signal data correctly, then insert into event lists.
@@ -2182,13 +2218,13 @@ void tc_signal_unsubscribe_nofree(struct tc_signal *s, struct tc_signal_sub *ss)
 	 * wakeup_all call while we're waiting for the signals' wq lock, so we have
 	 * to remove it from there first.  */
 	spin_lock(&common.immediate.lock);
-	spin_lock(&s->wq.waiters.lock);
 	/* DRD thinks that reading the tc is not allowed until a lock is taken...
 	 * which is basically right, although in this case event->tc should never change again.
 	 * (But it's correct that in _run_immediate => run_or_queue => _add_event the events'
 	 * e->tc is written to.) */
 	tc = ss->event.tc;
 	spin_lock(&tc->pending.lock);
+	spin_lock(&s->wq.waiters.lock);
 	LIST_REMOVE(ss, se_chain);
 	remove_event_holding_locks(&ss->event, &s->wq.waiters, &tc->pending, &common.immediate, NULL);
 	spin_unlock(&s->wq.waiters.lock);
