@@ -161,9 +161,13 @@ static inline enum tc_rv tc_thread_wait(struct tc_thread *tc)
 	return tc_thread_wait_ref(&r);
 }
 void tc_die();
+static inline struct tc_thread *cr_to_tc(struct coroutine *cr)
+{
+	return cr_uptr(cr);
+}
 static inline struct tc_thread *tc_current()
 {
-	return (struct tc_thread *)cr_uptr(cr_current());
+	return cr_to_tc(cr_current());
 }
 static inline char *tc_thread_name(struct tc_thread *tc)
 {
@@ -286,7 +290,8 @@ extern __thread int _caller_line;
 #endif
 
 
-static inline void tc_event_init(struct event *e) {
+static inline void tc_event_init(struct event *e)
+{
 	extern __thread struct tc_domain *tc_this_pthread_domain;
 	e->el = NULL;
 	e->acked = 0;

@@ -573,7 +573,7 @@ static void _switch_to(struct tc_thread *new)
 
 	cr_call(new->cr);
 
-	previous = (struct tc_thread *)cr_uptr(cr_caller());
+	previous = cr_to_tc(cr_caller());
 	spin_unlock(&previous->running);
 }
 
@@ -890,7 +890,7 @@ static void scheduler_part2()
 	int have_work;
 
 
-	tc = (struct tc_thread *)cr_uptr(cr_caller());
+	tc = cr_to_tc(cr_caller());
 	spin_unlock(&tc->running);
 
 	/* The own stack frame is needed, because we have multiple workers. If we would
@@ -1352,7 +1352,7 @@ void tc_die()
 
 void tc_setup(void *arg1, void *arg2)
 {
-	struct tc_thread *previous = (struct tc_thread *)cr_uptr(cr_caller());
+	struct tc_thread *previous = cr_to_tc(cr_caller());
 	void (*func)(void *) = arg1;
 
 	spin_unlock(&previous->running);
