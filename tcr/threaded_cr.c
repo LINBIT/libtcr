@@ -910,9 +910,9 @@ static inline void handle_aio_event()
 
 			ad->res = ioe[rv].res;
 			ad->res2 = ioe[rv].res2;
-			/* Order important? Other way than in tc_aio_wait()? */
-			wq = ad->notify;
 			tc_aio_set_data_done(ad);
+			__sync_synchronize(); /* pairs with tc_aio_init() */
+			wq = ACCESS_ONCE(ad->notify);
 //			ad->notify = NULL; ??
 
 			if (wq)
@@ -1587,6 +1587,7 @@ enum tc_rv tc_thread_pool_wait(struct tc_thread_pool *threads)
 		case RV_FAILED:
 				rv = r;
 		case RV_THREAD_NA:
+			tc_sleep(CLOCK_MONOTONIC, 0, 1e6);
 			break;
 		}
 		spin_lock(&d->lock);
@@ -2671,6 +2672,7 @@ int tc_aio_wait(void)
 		}
 
 		ad->notify = &tc->aio_wq;
+		__sync_synchronize();	/* pairs with handle_aio_event() */
 
 		rv = tc_waitq_wait_event(&tc->aio_wq,
 				tc_aio_data_done(ad)) || rv;
