@@ -45,7 +45,8 @@ void starter(void *unused)
 	sched3 = tc_new_domain(0);
 
 	tc_rw_init(&l);
-	assert(tc_rw_w_lock(&l) == 0);
+	if (tc_rw_w_lock(&l) != 0)
+		assert(0);
 	tc_waitq_init(&wq);
 
 	atomic_set(&threads, 0);
@@ -72,6 +73,7 @@ void starter(void *unused)
 	}
 	printf("\n");
 	stop = 1;
+	tc_rw_w_unlock(&l);
 	tc_waitq_wakeup_all( &wq);
 	tc_sleep(CLOCK_MONOTONIC, 0, 1e6);
 	tc_waitq_wakeup_all( &wq);
