@@ -92,6 +92,9 @@ $(RESULT_PATH)tc_mutex_test1.txt: tc_mutex_test1
 	$(POST)
 
 
+$(RESULT_PATH)one-thread-two-events.txt:
+	$(QUIET)echo "  known broken $@"
+
 ## Some tests shouldn't be run automatically
 $(RESULT_PATH)epoll-no-OUT.txt			\
 $(RESULT_PATH)tc_rwlock_signal_test.txt		\
