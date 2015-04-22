@@ -1,20 +1,13 @@
-override CFLAGS  += @CFLAGS@
-override LDFLAGS :=-lpthread -g
-
-####
-
-export CFLAGS LDFLAGS
-
 .PHONY: tests libtcr.a clean man-pages
 
 all: libtcr.a tests man-pages
 
 tests: libtcr.a
-	$(MAKE) -r -C tests
+	$(MAKE) -C tests
 
 clean:
 	$(MAKE) -C tcr clean
-	$(MAKE) -r -C tests clean
+	$(MAKE) -C tests clean
 	$(MAKE) -C man-pages clean
 
 libtcr.a:

@@ -1,4 +1,7 @@
-override CFLAGS += @CFLAGS@
+EXTRA_CFLAGS := @EXTRA_CFLAGS@
+CFLAGS  := -pthread  $(EXTRA_CFLAGS)
+LDFLAGS := -pthread -g
+
 ARCH	:= $(shell uname -m | sed -e s/i.86/i386/)
 
 .PHONY: clean

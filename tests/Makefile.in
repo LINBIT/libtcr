@@ -1,5 +1,7 @@
-override CFLAGS += @CFLAGS@ -I..
-override LDFLAGS += -L../tcr -ltcr -lpthread -lrt -laio -lm -g
+EXTRA_CFLAGS := @EXTRA_CFLAGS@
+CFLAGS  := -I.. -pthread  $(EXTRA_CFLAGS)
+LDFLAGS := -L../tcr
+LDLIBS  := -ltcr -lrt -laio -lm
 
 TARGETS := main tc_mutex_test1 tc_mutex_test2 tc_waitq_test tc_waitq_test2
 TARGETS += tc_waitfd-both-dirs tc_waitfd-close tc_wait_fd-roundrobin
@@ -18,14 +20,6 @@ SHELL	:= /bin/bash
 QUIET	?= @
 
 all: $(TARGETS)
-
-.SUFFIXES: .o
-
-%.o : %.c
-	$(QUIET)$(CC) -c -o $@ $^ $(CFLAGS)
-
-% : %.o
-	$(QUIET)$(CC) -o $@ $^ $(LDFLAGS)
 
 clean:
 	rm -f *.o $(TARGETS)
