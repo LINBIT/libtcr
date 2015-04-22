@@ -132,4 +132,8 @@ static inline void spin_lock(spinlock_t *l)
 
 #endif /* SPINLOCK_DEBUG */
 
+static inline int spin_trylock(spinlock_t *l) {
+	return spin_trylock_plain(l) == 0;
+}
+
 #endif
