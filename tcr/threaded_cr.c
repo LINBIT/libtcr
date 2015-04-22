@@ -191,6 +191,7 @@ static struct common_data_t common = {
 #undef tc_wait_fd_prio
 #undef tc_mutex_lock
 #undef tc_thread_wait
+#undef tc_thread_wait_domain
 #undef tc_waitq_wait
 #undef tc_thread_pool_wait
 #undef tc_sleep
@@ -1578,7 +1579,7 @@ enum tc_rv tc_thread_pool_wait(struct tc_thread_pool *threads)
 	spin_lock(&d->lock);
 	while ((tc = LIST_FIRST(&threads->list))) {
 		spin_unlock(&d->lock);
-		r = tc_thread_wait(tc);
+		r = tc_thread_wait_domain(tc, d);
 		switch(r) {
 		case RV_INTR:
 			return r;

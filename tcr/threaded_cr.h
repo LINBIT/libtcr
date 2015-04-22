@@ -151,14 +151,18 @@ struct tc_thread *tc_thread_new(void (*func)(void *), void *data, char* name);
 struct tc_thread_ref tc_thread_new_ref(void (*func)(void *), void *data, char* name);
 struct tc_thread_ref tc_thread_new_ref_in_domain(void (*func)(void *), void *data, char* name, struct tc_domain *domain);
 enum tc_rv tc_thread_wait_ref(struct tc_thread_ref *tc_r);
-static inline enum tc_rv tc_thread_wait(struct tc_thread *tc)
+static inline enum tc_rv tc_thread_wait_domain(struct tc_thread *tc, struct tc_domain *domain)
 {
 	struct tc_thread_ref r;
-	extern __thread struct tc_domain *tc_this_pthread_domain;
 	r.thr = tc;
-	r.domain = tc_this_pthread_domain;
+	r.domain = domain;
 	r.id = 0;
 	return tc_thread_wait_ref(&r);
+}
+static inline enum tc_rv tc_thread_wait(struct tc_thread *tc)
+{
+	extern __thread struct tc_domain *tc_this_pthread_domain;
+	return tc_thread_wait_domain(tc, tc_this_pthread_domain);
 }
 void tc_die();
 static inline struct tc_thread *cr_to_tc(struct coroutine *cr)
@@ -497,6 +501,7 @@ static inline int tc_rw_get_readers(struct tc_rw_lock *l)
 #define tc_wait_fd_prio(E, T)	({ enum tc_rv rv; SET_CALLER; rv = tc_wait_fd_prio(E, T); UNSET_CALLER; rv; })
 #define tc_mutex_lock(M)	({ enum tc_rv rv; SET_CALLER; rv = tc_mutex_lock(M); UNSET_CALLER; rv; })
 #define tc_thread_wait(T)	({ enum tc_rv rv; SET_CALLER; rv = tc_thread_wait(T); UNSET_CALLER; rv; })
+#define tc_thread_wait_domain(T,D)	({ enum tc_rv rv; SET_CALLER; rv = tc_thread_wait_domain(T,D); UNSET_CALLER; rv; })
 #define tc_waitq_wait(W)	({ enum tc_rv rv; SET_CALLER; rv = tc_waitq_wait(W); UNSET_CALLER; rv; })
 #define tc_thread_pool_wait(P)	({ enum tc_rv rv; SET_CALLER; rv = tc_thread_pool_wait(P); UNSET_CALLER; rv; })
 #define tc_sleep(C, S, N)	({ enum tc_rv rv; SET_CALLER; rv = tc_sleep(C, S, N); UNSET_CALLER; rv; })
