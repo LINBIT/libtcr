@@ -77,6 +77,7 @@ struct tc_fd {
 	int fd;
 	atomic_t err_hup;
 	__uint32_t ep_events;  /* current mask */
+	int was_allocated:1;
 	struct event_list events;
 	struct tc_fd *free_list_next;
 };

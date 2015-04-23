@@ -1613,6 +1613,7 @@ static void _tc_fd_init_keep_blocking(struct tc_fd *tcfd, int fd)
 	atomic_set(&tcfd->err_hup, 0);
 
 	epe.events = 0;
+	tcfd->was_allocated = 1;
 
 	if (tcfd_epoll_ctl(EPOLL_CTL_ADD, tcfd, &epe) == 0)
 		return;
@@ -1672,6 +1673,7 @@ struct tc_fd *tc_register_fd(int fd)
 int tc_register_fd_mem_still_blocking(int fd, struct tc_fd *tcfd)
 {
 	_tc_fd_init_keep_blocking(tcfd, fd);
+	tcfd->was_allocated = 0;
 	return atomic_read(&tcfd->err_hup);
 }
 
@@ -1697,13 +1699,11 @@ static void _tc_fd_unregister(struct tc_fd *tcfd, int free_later)
 		msg_exit(1, "event list not empty in tc_unregister_fd()\n");
 	spin_unlock(&tcfd->events.lock);
 
-	switch (free_later) {
-	case -1: break;  // don't free
-	case  0:
-		 _tc_fd_free(tcfd);
-		 break;
-	default:
-		 store_for_later_free(tcfd);
+	if (tcfd->was_allocated) {
+		if (free_later)
+			_tc_fd_free(tcfd);
+		else
+			store_for_later_free(tcfd);
 	}
 }
 
@@ -1714,7 +1714,7 @@ void tc_unregister_fd(struct tc_fd *tcfd)
 
 void tc_unregister_fd_mem(struct tc_fd *tcfd)
 {
-	_tc_fd_unregister(tcfd, -1);
+	_tc_fd_unregister(tcfd, 0);
 }
 
 static void _process_free_list(spinlock_t *lock_to_free)
