@@ -452,6 +452,7 @@ static void __remove_event(struct event *e)
 
 static void _remove_event(struct event *e, struct event_list *el)
 {
+	__must_hold(&el->lock);
 	assert(el == e->el);
 	__remove_event(e);
 	atomic_dec(&e->tc->refcnt);
