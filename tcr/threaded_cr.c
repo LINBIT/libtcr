@@ -463,7 +463,7 @@ static struct event_list *remove_event(struct event *e)
 {
 	struct event_list *el;
 
-	/* The event can be moved to an other list while we try to grab
+	/* The event can be moved to another list while we try to grab
 	   the list lock... */
 	while(1) {
 		while ((el = ACCESS_ONCE(e->el)) == NULL)
