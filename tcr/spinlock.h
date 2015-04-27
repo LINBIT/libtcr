@@ -73,6 +73,9 @@ static inline void spin_unlock_plain(spinlock_t *l)
 
 static inline void spin_lock_init(spinlock_t *l)
 {
+	l->line = 0;
+	l->spinners = 0;
+	l->file = NULL;
 	__sync_lock_release(&l->lock.m);
 }
 
