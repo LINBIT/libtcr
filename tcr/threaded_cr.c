@@ -1701,9 +1701,9 @@ static void _tc_fd_unregister(struct tc_fd *tcfd, int free_later)
 
 	if (tcfd->was_allocated) {
 		if (free_later)
-			_tc_fd_free(tcfd);
-		else
 			store_for_later_free(tcfd);
+		else
+			_tc_fd_free(tcfd);
 	}
 }
 
