@@ -54,7 +54,7 @@ void __spin_lock(spinlock_t *l, char* file, int line)
 	spins = sp ? spins_per_delay : 0; /* other spinners present already? */
 
 	assert(this_spinlock_owner.m != 0);
-	for (;;) {
+	for (;;spins++) {
 		/* spin on dirty read first */
 		current_owner.m = ACCESS_ONCE(l->lock.m);
 		if (!current_owner.m)
@@ -69,7 +69,7 @@ void __spin_lock(spinlock_t *l, char* file, int line)
 
 		/* if spins_per_delay exceeded,
 		 * or if on same cpu as the current owner, rather sleep. */
-		if (++spins > spins_per_delay || current_owner.cpu == this_spinlock_owner.cpu) {
+		if (spins > spins_per_delay || current_owner.cpu == this_spinlock_owner.cpu) {
 			if (!delay_usec)
 				delay_usec = (500 + 1000 * random()/RAND_MAX);
 
