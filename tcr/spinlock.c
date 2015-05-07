@@ -4,7 +4,6 @@
 #include "coroutines.h"
 #include "spinlock.h"
 
-static const unsigned int spins_per_delay = 30;
 /* If you want the goodies, you need to properly initialize it
  * before starting to use spinlocks. */
 __thread union spinlock_marker this_spinlock_owner = { .m = ~0ULL };
@@ -33,6 +32,7 @@ void msg_exit(int code, const char *fmt, ...) __attribute__ ((__noreturn__));
 #define __spin_lock(__L, f, l) __spin_lock(__L)
 #endif
 
+static const unsigned int spins_per_delay = 100;
 static const int abort_after = 30;
 void __spin_lock(spinlock_t *l, char* file, int line)
 {
@@ -72,12 +72,12 @@ void __spin_lock(spinlock_t *l, char* file, int line)
 		 * or if on same cpu as the current owner, rather sleep. */
 		if (spins > spins_per_delay || current_owner.cpu == this_spinlock_owner.cpu) {
 			if (!delay_usec)
-				delay_usec = (500 + 1000 * random()/RAND_MAX);
+				delay_usec = (50 + 100 * random()/RAND_MAX);
 
 			++delays;
 			sp = __sync_sub_and_fetch(&l->spinners, 1);
 			sp = Min(sp, 10);
-			my_usleep(delay_usec + 500 * sp);
+			my_usleep(delay_usec + 50 * sp);
 			sp = __sync_fetch_and_add(&l->spinners, 1);
 			if (sp)
 				spins = spins_per_delay * sp/10;
