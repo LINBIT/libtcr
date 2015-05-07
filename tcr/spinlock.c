@@ -33,7 +33,9 @@ void msg_exit(int code, const char *fmt, ...) __attribute__ ((__noreturn__));
 #endif
 
 static const unsigned int spins_per_delay = 100;
+static const int warn_after = 5;
 static const int abort_after = 30;
+static const int warn_only_every = 120;
 void __spin_lock(spinlock_t *l, char* file, int line)
 {
 #ifdef SPINLOCK_DEBUG
@@ -91,16 +93,16 @@ void __spin_lock(spinlock_t *l, char* file, int line)
 			time(&now);
 			if (!my_first_delay)
 				my_first_delay = now;
-			if (now - last_warn < 30)
-				continue;
-
-			last_warn = now;
-			syslog(LOG_WARNING, "libtcr in pid %d: "
-					"spinlock held by tid:%u in %s:%d, "
-					"wanted by tid:%u from %s:%d\n",
-					getpid(),
-					current_owner.tid, l->file, l->line,
-					this_spinlock_owner.tid, file, line);
+			if (now - my_first_delay > warn_after &&
+					now - last_warn > warn_only_every) {
+				last_warn = now;
+				syslog(LOG_WARNING, "libtcr in pid %d: "
+						"spinlock held by tid:%u in %s:%d, "
+						"wanted by tid:%u from %s:%d\n",
+						getpid(),
+						current_owner.tid, l->file, l->line,
+						this_spinlock_owner.tid, file, line);
+			}
 #ifdef SPINLOCK_ABORT
 
 			if (now - my_first_delay > abort_after) {
