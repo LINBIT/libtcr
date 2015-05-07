@@ -33,6 +33,7 @@ void msg_exit(int code, const char *fmt, ...) __attribute__ ((__noreturn__));
 #define __spin_lock(__L, f, l) __spin_lock(__L)
 #endif
 
+static const int abort_after = 30;
 void __spin_lock(spinlock_t *l, char* file, int line)
 {
 #ifdef SPINLOCK_DEBUG
@@ -101,15 +102,15 @@ void __spin_lock(spinlock_t *l, char* file, int line)
 					current_owner.tid, l->file, l->line,
 					this_spinlock_owner.tid, file, line);
 #ifdef SPINLOCK_ABORT
-			if (now - my_first_delay < 120)
-				continue;
 
-			fprintf(stderr, "lock held by: \"%s\" in %s:%d\n",
-					l->holder, l->file, l->line);
-			fprintf(stderr, "\"%s\" tries to get lock in %s:%d\n",
-					holder, file, line);
-			msg_exit(1, "spinning too long in spin_lock()\n");
-			// *(char*)91 = 22;
+			if (now - my_first_delay > abort_after) {
+				fprintf(stderr, "lock held by: \"%s\" in %s:%d\n",
+						l->holder, l->file, l->line);
+				fprintf(stderr, "\"%s\" tries to get lock in %s:%d\n",
+						holder, file, line);
+				msg_exit(1, "spinning too long in spin_lock()\n");
+				// *(char*)91 = 22;
+			}
 #endif
 #endif
 		}
