@@ -207,7 +207,6 @@ static void signal_cancel_pending();
 static void worker_prepare_sleep();
 static void worker_after_sleep();
 static void store_for_later_free(struct tc_fd *tcfd);
-static void iwi_immediate(struct tc_domain *dom);
 static void _tc_fd_init(struct tc_fd *tcfd, int fd);
 static void _remove_event(struct event *e, struct event_list *el);
 static struct event_list *remove_event(struct event *e);
@@ -725,7 +724,7 @@ search_loop_locked:
 		case EF_READY:
 		case EF_SIGNAL:
 			if (!CIRCLEQ_EMPTY(&common.immediate.events))
-				iwi_immediate(tc_this_pthread_domain); /* More work available, wakeup an worker */
+				_iwi_immediate(tc_this_pthread_domain); /* More work available, wakeup an worker */
 			spin_unlock(&common.immediate.lock);
 			switch_to(tc);
 			return 1;
@@ -783,14 +782,6 @@ static void _iwi_immediate(struct tc_domain *dom)
 
 	if (write(dom->immediate_fd, &c, sizeof(c)) != sizeof(c))
 		msg_exit(1, "write() failed with: %m\n");
-}
-
-static void iwi_immediate(struct tc_domain *dom)
-{
-	/* Some other worker should please process the queued immediate events. */
-	if (!CLIST_EMPTY(&dom->sleeping_workers)) {
-		_iwi_immediate(dom);
-	}
 }
 
 int tc_sched_yield()
@@ -1416,7 +1407,7 @@ void tc_die()
 	tc_waitq_wakeup_all(&tc->exit_waiters);
 
 	add_event_cr(&tc->e, 0, EF_EXITING, tc);  /* The scheduler will free me */
-	iwi_immediate(tc_this_pthread_domain);
+	_iwi_immediate(tc_this_pthread_domain);
 	_switch_to(&worker->sched_p2); /* like tc_scheduler(); but avoids deadlocks */
 	msg_exit(1, "tc_scheduler() returned in tc_die() [flags = %d]\n", &tc->flags);
 }
@@ -1521,7 +1512,7 @@ struct tc_thread_ref tc_thread_new_ref_in_domain(void (*func)(void *), void *dat
 	if (t.thr) {
 		t.id = t.thr->id;
 		add_event_cr(&t.thr->e, 0, EF_READY, t.thr);
-		iwi_immediate(tc_this_pthread_domain);
+		_iwi_immediate(tc_this_pthread_domain);
 	}
 
 	WITH_OTHER_DOMAIN_END();
@@ -1559,7 +1550,7 @@ void tc_thread_pool_new_in_domain(struct tc_thread_pool *threads, void (*func)(v
 		spin_unlock(&tc_this_pthread_domain->lock);
 		add_event_cr(&tc->e, 0, EF_READY, tc);
 	}
-	iwi_immediate(domain);
+	_iwi_immediate(domain);
 
 	WITH_OTHER_DOMAIN_END();
 }
@@ -2072,7 +2063,7 @@ void tc_waitq_wakeup_one_owner(struct tc_waitq *wq, struct tc_thread **woken)
 	spin_unlock(&common.immediate.lock);
 
 	if (wake)
-		iwi_immediate(dom);
+		_iwi_immediate(dom);
 }
 
 void tc_waitq_wakeup_one(struct tc_waitq *wq)
@@ -2150,10 +2141,7 @@ void tc_waitq_wakeup_all(struct tc_waitq *wq)
 	spin_unlock(&wq->waiters.lock);
 	spin_unlock(&common.immediate.lock);
 
-	/* We publish that there's something to be done.
-	 * The iwi_immediate() would only wakeup _idle_ workers, so (if there's
-	 * none) the event might get lost; the _iwi_immediate() function makes sure
-	 * the next epoll_wait() call terminates. */
+	/* We publish that there's something to be done. */
 	for(i=0; i<alerted_max; i++) {
 		_iwi_immediate(alerted[i]);
 	}
