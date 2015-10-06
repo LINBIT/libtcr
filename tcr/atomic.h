@@ -64,12 +64,12 @@ static inline atomic_base_type atomic_swap(atomic_t *v, atomic_base_type i)
 
 static inline void atomic_set_bit(atomic_base_type bnr, atomic_t *v)
 {
-	__sync_or_and_fetch(&v->counter, 1 << bnr);
+	(void)__sync_or_and_fetch(&v->counter, 1 << bnr);
 }
 
 static inline void atomic_clear_bit(atomic_base_type bnr, atomic_t *v)
 {
-	__sync_and_and_fetch(&v->counter, ~(1 << bnr));
+	(void)__sync_and_and_fetch(&v->counter, ~(1 << bnr));
 }
 
 static inline atomic_base_type atomic_test_bit(atomic_base_type bnr, atomic_t *v)

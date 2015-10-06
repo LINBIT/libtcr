@@ -667,7 +667,7 @@ static struct tc_thread *run_or_queue(struct event *e)
 		move_event(e, &tc->pending);
 		tc = NULL;
 	} else {
-		__sync_or_and_fetch(&tc->flags, TF_RUNNING);
+		(void)__sync_or_and_fetch(&tc->flags, TF_RUNNING);
 
 	#ifdef WAIT_DEBUG
 		tc->sleep_file = "running";
@@ -860,7 +860,7 @@ return_this:
 	}
 
 wait_for_another:
-	__sync_and_and_fetch(&tc->flags, ~TF_RUNNING);
+	(void)__sync_and_and_fetch(&tc->flags, ~TF_RUNNING);
 
 #ifdef WAIT_DEBUG
 	tc->sleep_file = _caller_file;
