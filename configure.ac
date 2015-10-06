@@ -39,6 +39,14 @@ AC_ARG_ENABLE([spinlock-abort],
 
 test -n "$EXTRA_CFLAGS" || EXTRA_CFLAGS="-Wall -O3"
 
+# dirty hack for RHEL5
+# 32bit not supported
+AC_CHECK_HEADERS([/usr/src/kernels/2.6.18-406.el5-x86_64/include/asm/unistd.h], [have__rhel5=yes], [have__rhel5=no])
+if test x$have__rhel5 = xyes ; then
+	   AC_DEFINE(HAVE__RHEL5, 1, RHEL5 workarounds)
+fi
+
+
 AC_SUBST(EXTRA_CFLAGS, $EXTRA_CFLAGS)
 
 AC_OUTPUT([

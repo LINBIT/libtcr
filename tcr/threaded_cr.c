@@ -28,11 +28,13 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdarg.h>
+#include <poll.h>
 #include <limits.h>
 #include <string.h>
 #include <sys/resource.h>
 #include <signal.h>
 #include <sys/time.h>
+#include <sys/socket.h>
 #include <libaio.h>
 #include <aio.h>
 #include <assert.h>
@@ -2447,7 +2449,6 @@ static inline int waiting_done(struct timer_waiter *tw, struct timespec *ts)
 }
 
 
-
 /* Each tc_thread sorts its timer_waiter into the scheduler.timer_list; one of
  * them becomes the master, and wakes up all other threads as necessary, until
  * it is done, and another one becomes master.  */
@@ -2948,6 +2949,112 @@ int tc_aio_sync(int fd, int data_only)
 
 	return rv || rv2;
 }
+
+
+#ifdef HAVE__RHEL5
+static void *_timerfd_pthread(void *_fd) {
+	struct pollfd pfd = { .fd = (long)_fd };
+	struct itimerspec ts;
+	int rv, invalid;
+	uint8_t data = 1;
+	struct timespec now, delta;
+
+	/* For debugging */
+	_worker_initialize(0, -1);
+
+	invalid = 1;
+	while (1) {
+		if (invalid) {
+			delta.tv_sec = 100000;
+			delta.tv_nsec = 0;
+		}
+		pfd.events = EPOLLIN;
+
+		rv = ppoll(&pfd, 1, &delta, NULL);
+
+		/* Only if timeout and valid data. */
+		if (rv == 0 && !invalid) {
+			/* We only write one byte, but read 8 - that helps against too many
+			 * wake ups. */
+			rv = write(pfd.fd, &data, sizeof(data));
+			if (rv != sizeof(data)) {
+				/* do_log */
+			}
+		}
+
+		invalid=1;
+		if (rv > 0) {
+			rv = read(pfd.fd, &ts, sizeof(ts));
+			assert(rv == sizeof(ts));
+
+			invalid = 0;
+
+			assert(ts.it_interval.tv_nsec == 0);
+			assert((ts.it_interval.tv_sec & ~TFD_TIMER_ABSTIME) == 0);
+
+			if (ts.it_interval.tv_sec & TFD_TIMER_ABSTIME) {
+				clock_gettime(CLOCK_MONOTONIC, &now);
+				if (timer_delta(&delta, &ts.it_value, &now)) {
+					delta.tv_sec = 0;
+					delta.tv_nsec = 1;
+				}
+			} else {
+				delta = ts.it_value;
+			}
+		}
+	}
+
+	return NULL;
+}
+
+int timerfd_create (clockid_t __clock_id, int __flags)
+{
+	int fds[2];
+	int rv;
+	pthread_t pt;
+
+	assert(__clock_id == CLOCK_MONOTONIC);
+
+	rv = socketpair(AF_LOCAL, SOCK_STREAM, 0, fds);
+	if (rv)
+		return -1;
+
+	rv = pthread_create(&pt, NULL, _timerfd_pthread, (void*)(long)fds[0]);
+	if (rv) {
+		close(fds[0]);
+		close(fds[1]);
+		return -1;
+	}
+
+	return fds[1];
+}
+
+int timerfd_settime (int fd, int flags,
+                            const struct itimerspec *new,
+                            struct itimerspec *old)
+{
+	struct itimerspec ts;
+
+	assert(new->it_interval.tv_sec == 0);
+	assert(new->it_interval.tv_nsec == 0);
+
+	ts = *new;
+	ts.it_interval.tv_sec = 0;
+	ts.it_interval.tv_nsec = 0;
+
+	if (flags & TFD_TIMER_ABSTIME) {
+		ts.it_interval.tv_sec = TFD_TIMER_ABSTIME;
+	}
+
+
+	if (write(fd, &ts, sizeof(ts)) == sizeof(ts))
+		return 0;
+	else
+		return -1;
+}
+#endif
+
+
 
 
 #ifdef WAIT_DEBUG

@@ -1,24 +1,56 @@
 #ifndef COMPAT_H
 #define COMPAT_H
 
+#define _GNU_SOURCE
+#include <unistd.h>
+#include <sys/syscall.h>
+
 #include "config.h"
 
-#include <sys/syscall.h>
-#include <unistd.h>
+#ifdef HAVE__RHEL5
 
-#ifdef HAVE_SYS_EVENTFD_H
-#include <sys/eventfd.h>
-#else
+/* Syscall numbers */
+//#undef _ASM_X86_64_UNISTD_H_
+//#include "/usr/src/kernels/2.6.18-406.el5-x86_64/include/asm/unistd.h"
+#define __NR_gettid             186
+#define __NR_eventfd            284
+#define __NR_tgkill             234
+
+static inline int CPU_COUNT(cpu_set_t *x) {
+	unsigned int i;
+	unsigned count = 0;
+
+	for(i=0; i < sizeof(cpu_set_t)/sizeof(__cpu_mask); ++i)
+		count += __builtin_popcount(x->__bits[i]);
+
+	return count;
+}
+#define HAVE_TIMERFD_CREATE
+extern int timerfd_create (clockid_t __clock_id, int __flags);
+#define HAVE_TIMERFD_SETTIME
+extern int timerfd_settime (int __ufd, int __flags,
+							__const struct itimerspec *__utmr,
+							struct itimerspec *__otmr);
+
 #include <stdint.h>
 typedef uint64_t eventfd_t;
-extern int eventfd (int __count, int __flags);
-extern int eventfd_read (int __fd, eventfd_t *__value);
-extern int eventfd_write (int __fd, eventfd_t value);
-#endif
+static inline int eventfd (int __count, int __flags)
+{
+	return syscall(__NR_eventfd, __count, __flags);
+}
+
+static inline int tgkill (pid_t tgid, pid_t tid, int sig)
+{
+	return syscall(__NR_tgkill, tgid, tid, sig);
+}
+
+#else // HAVE__RHEL5
 
 #ifdef HAVE_SYS_TIMERFD_H
 #include <sys/timerfd.h>
 #endif
+#include <time.h>
+
 
 #ifndef HAVE_TIMERFD_CREATE
 static inline int timerfd_create (clockid_t __clock_id, int __flags)
@@ -36,10 +68,30 @@ static inline int timerfd_settime (int __ufd, int __flags,
 }
 #endif
 
+
+
+
+#include <sys/syscall.h>
+#include <unistd.h>
+
+#ifdef HAVE_SYS_EVENTFD_H
+#include <sys/eventfd.h>
+#else
+#include <stdint.h>
+typedef uint64_t eventfd_t;
+static inline int eventfd (int __count, int __flags)
+{
+	return syscall(SYS_eventfd, __count, __flags);
+}
+#endif
+
 static inline int tgkill (pid_t tgid, pid_t tid, int sig)
 {
 	return syscall(SYS_tgkill, tgid, tid, sig);
 }
+
+#endif
+// HAVE__RHEL5
 
 
 #ifndef TFD_CLOEXEC
