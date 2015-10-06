@@ -2371,7 +2371,7 @@ static int timerfd_reprogram_valid(struct timespec *ts)
 		return 0;
 
 	/* If there's enough difference, just use the absolute time.
-	 * If it get's too near, use the relative delta. */
+	 * If it gets too near, use the relative delta. */
 	make_abs = delta.tv_sec > 0 ? TFD_TIMER_ABSTIME : 0;
 
 	its.it_value = make_abs ? LIST_FIRST(&tc_this_pthread_domain->timer_list)->abs_end : delta;
