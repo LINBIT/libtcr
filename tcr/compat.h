@@ -85,4 +85,6 @@ static inline int tgkill (pid_t tgid, pid_t tid, int sig)
 #define BUILD_BUG() BUILD_BUG_ON_MSG(1, "BUILD_BUG failed")
 /**********************************************************************/
 
+
+/* vim: set foldmarker=#if,#endif foldmethod=marker foldcolumn=5 foldlevel=1 foldtext=getline(v\:foldstart) : */
 #endif
