@@ -1059,6 +1059,57 @@ static void scheduler_part2()
 	}
 }
 
+
+int _worker_initialize(int pthr_number, int my_cpu)
+{
+	int rv;
+
+	rv = 0;
+	worker = calloc(1, sizeof(*worker));
+	if (!worker)
+		return ENOMEM;
+
+
+	worker->nr = pthr_number;
+	worker->tid = syscall(__NR_gettid);
+	this_spinlock_owner.tid = worker->tid;
+	this_spinlock_owner.cpu = my_cpu;
+
+	rv |= asprintf(&worker->main_thread.name, "main_thread_%u_%u", pthr_number, worker->tid);
+	worker->main_thread.domain = tc_this_pthread_domain;
+	worker->main_thread.cr = cr_current();
+	cr_set_uptr(cr_current(), &worker->main_thread);
+	tc_waitq_init(&worker->main_thread.exit_waiters);
+	atomic_set(&worker->main_thread.refcnt, 0);
+	spin_lock_init(&worker->main_thread.running);
+	spin_lock(&worker->main_thread.running); /* runs currently */
+	worker->main_thread.flags = TF_RUNNING;
+	event_list_init(&worker->main_thread.pending);
+	worker->main_thread.worker_nr = pthr_number;
+	/* LIST_INSERT_HEAD(&tc_this_pthread_domain->threads, &worker->main_thread, tc_chain); */
+
+	rv |= asprintf(&worker->sched_p2.name, "sched_%d", worker->tid);
+	if (rv == -1)
+		msg_exit(1, "allocation in asprintf() failed\n");
+	worker->sched_p2.cr = cr_create(scheduler_part2, NULL, NULL, DEFAULT_STACK_SIZE);
+	if (!worker->sched_p2.cr)
+		msg_exit(1, "allocation of worker->sched_p2 failed\n");
+
+	cr_set_uptr(worker->sched_p2.cr, &worker->sched_p2);
+	tc_waitq_init(&worker->sched_p2.exit_waiters);
+	atomic_set(&worker->sched_p2.refcnt, 0);
+	spin_lock_init(&worker->sched_p2.running);
+	worker->sched_p2.flags = 0;
+	event_list_init(&worker->sched_p2.pending);
+	worker->sched_p2.worker_nr = pthr_number;
+	worker->must_sync = 0;
+	worker->is_on_sleeping_list = 0;
+	worker->is_init = 1;
+
+	return rv;
+}
+
+
 void tc_worker_init(void)
 {
 	cpu_set_t cpu_mask;
@@ -1069,8 +1120,6 @@ void tc_worker_init(void)
 	 * (from tc_new_domain()) */
 	if (worker)
 		return;
-
-	worker = calloc(1, sizeof(*worker));
 
 	i = atomic_inc(&common.pthread_counter) - 1;
 
@@ -1092,41 +1141,7 @@ found_cpu:
 	if (pthread_setaffinity_np(pthread_self(), sizeof(cpu_mask), &cpu_mask))
 		msg_exit(1, "sched_setaffinity(%d): %m\n", i);
 
-	worker->nr = i;
-	worker->tid = syscall(__NR_gettid);
-	this_spinlock_owner.tid = worker->tid;
-	this_spinlock_owner.cpu = my_cpu;
-
-	rv |= asprintf(&worker->main_thread.name, "main_thread_%u_%u", i, worker->tid);
-	worker->main_thread.domain = tc_this_pthread_domain;
-	worker->main_thread.cr = cr_current();
-	cr_set_uptr(cr_current(), &worker->main_thread);
-	tc_waitq_init(&worker->main_thread.exit_waiters);
-	atomic_set(&worker->main_thread.refcnt, 0);
-	spin_lock_init(&worker->main_thread.running);
-	spin_lock(&worker->main_thread.running); /* runs currently */
-	worker->main_thread.flags = TF_RUNNING;
-	event_list_init(&worker->main_thread.pending);
-	worker->main_thread.worker_nr = i;
-	/* LIST_INSERT_HEAD(&tc_this_pthread_domain->threads, &worker->main_thread, tc_chain); */
-
-	rv |= asprintf(&worker->sched_p2.name, "sched_%d", worker->tid);
-	if (rv == -1)
-		msg_exit(1, "allocation in asprintf() failed\n");
-	worker->sched_p2.cr = cr_create(scheduler_part2, NULL, NULL, DEFAULT_STACK_SIZE);
-	if (!worker->sched_p2.cr)
-		msg_exit(1, "allocation of worker->sched_p2 failed\n");
-
-	cr_set_uptr(worker->sched_p2.cr, &worker->sched_p2);
-	tc_waitq_init(&worker->sched_p2.exit_waiters);
-	atomic_set(&worker->sched_p2.refcnt, 0);
-	spin_lock_init(&worker->sched_p2.running);
-	worker->sched_p2.flags = 0;
-	event_list_init(&worker->sched_p2.pending);
-	worker->sched_p2.worker_nr = i;
-	worker->must_sync = 0;
-	worker->is_on_sleeping_list = 0;
-	worker->is_init = 1;
+	rv = _worker_initialize(i, my_cpu);
 
 	spin_lock(&tc_this_pthread_domain->worker_list_lock);
 	LIST_INSERT_HEAD(&tc_this_pthread_domain->worker_list, worker, worker_chain);

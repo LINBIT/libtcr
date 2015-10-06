@@ -45,7 +45,8 @@ static inline void *cr_uptr(struct coroutine *cr)
 
 static inline void cr_set_uptr(struct coroutine *cr, void *uptr)
 {
-	*(void **)cr = uptr;
+	if (cr)
+		*(void **)cr = uptr;
 }
 
 static inline struct coroutine *cr_caller(void)
