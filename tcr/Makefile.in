@@ -6,7 +6,7 @@ LDLIBS += -lm
 ARCH	:= $(shell uname -m | sed -e s/i.86/i386/)
 
 ifeq ($(ARCH),ppc64le)
-ASFLAGS += -mregnames -mcpu=power8 -mlittle-endian
+ASFLAGS += -mregnames -mpower8 -mlittle-endian
 endif
 
 
