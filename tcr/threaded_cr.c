@@ -626,7 +626,7 @@ static void arm_immediate(int op)
 {
 	struct epoll_event epe;
 
-	epe.data.ptr = (void*)IWI_IMMEDIATE;
+	epe.data.u64 = IWI_IMMEDIATE;
 	epe.events = EPOLLIN | EPOLLONESHOT;
 
 	if (epoll_ctl(tc_this_pthread_domain->efd, op, tc_this_pthread_domain->immediate_fd, &epe))
