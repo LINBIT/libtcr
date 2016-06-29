@@ -45,11 +45,23 @@
 /* same can probably be achieved within 32bit, if we limit (mask) the tid,
  * and use only some bit for the cpu */
 union spinlock_marker {
+#if __WORDSIZE == 64
 	uint64_t m;
 	struct {
 		uint32_t tid; /* must not be 0! */
 		uint32_t cpu; /* because this could be 0. */
-	};
+	} __attribute__((packed));
+#else
+#if __WORDSIZE == 32
+	uint32_t m;
+	struct {
+		int tid:24; /* must not be 0! */
+		int cpu:8; /* because this could be 0. */
+	} __attribute__((packed));
+#else
+#error Unsupported __WORDSIZE
+#endif
+#endif
 };
 
 typedef struct spinlock {
