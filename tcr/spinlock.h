@@ -128,6 +128,11 @@ static inline void _spin_lock(spinlock_t *l, char* file, int line)
 {
 	if (spin_trylock_plain(l))
 		__spin_lock(l, file, line);
+/* https://www.ibm.com/support/knowledgecenter/SSGH2K_13.1.0/com.ibm.xlc131.aix.doc/compiler_ref/bif_gcc_atomic_val_comp_swap.html
+ * vs.
+ * https://www.ibm.com/support/knowledgecenter/SSGH3R_13.1.0/com.ibm.xlcpp131.aix.doc/compiler_ref/bif_gcc_atomic_synchronize.html
+ * needed for thread sync? */
+__sync_synchronize();
 	l->file = file;
 	l->line = line;
 }
