@@ -162,6 +162,8 @@ struct tc_domain {
 	spinlock_t timer_lock;
 	struct timer_list timer_list;
 
+	cpu_set_t available_cpus;
+
 	spinlock_t worker_list_lock;
 	struct worker_list_t worker_list;
 	pthread_t *pthreads;
@@ -1125,11 +1127,11 @@ void tc_worker_init(void)
 
 	i = atomic_inc(&common.pthread_counter) - 1;
 
-	my_cpu = i % CPU_COUNT(&common.available_cpus);
+	my_cpu = i % CPU_COUNT(&tc_this_pthread_domain->available_cpus);
 	CPU_ZERO(&cpu_mask);
 
 	for (ci = 0; ci < CPU_SETSIZE; ci++) {
-		if (CPU_ISSET(ci, &common.available_cpus)) {
+		if (CPU_ISSET(ci, &tc_this_pthread_domain->available_cpus)) {
 			if (cpus_seen == my_cpu) {
 				CPU_SET(ci, &cpu_mask);
 				goto found_cpu;
@@ -1271,7 +1273,10 @@ struct tc_domain *_setup_domain(struct tc_domain *n_d, int nr_of_workers)
 
 	tc_init();
 
-	avail_cpu = CPU_COUNT(&common.available_cpus);
+	memcpy(&n_d->available_cpus, &common.available_cpus,
+			sizeof(n_d->available_cpus));
+
+	avail_cpu = CPU_COUNT(&n_d->available_cpus);
 	if (nr_of_workers <= 0) {
 		nr_of_workers = avail_cpu + nr_of_workers;
 		if (nr_of_workers < 1)
